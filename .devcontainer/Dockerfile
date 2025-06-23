@@ -1,7 +1,7 @@
-# Use uma imagem base de Dev Container com Python
+# Use imagem base Dev Container Python 3.9
 FROM mcr.microsoft.com/devcontainers/python:3.9
 
-# Instala Tesseract OCR e dependências de sistema
+# Instala Tesseract OCR e dependências de SO
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        tesseract-ocr \
@@ -14,12 +14,12 @@ RUN apt-get update \
 # Define diretório de trabalho
 WORKDIR /workspace
 
-# Copia o requirements e instala dependências Python
+# Copia e instala dependências Python
 COPY requirements.txt /workspace/requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r /workspace/requirements.txt
 
-# Copia todo o código do repositório
+# Copia o código do repositório
 COPY . /workspace
 
-# Ajuste opcional: se quiser configurar TESSERACT_CMD em config.py, dentro do container tesseract está no PATH.
+# No container, 'tesseract' estará no PATH, e python-dotenv lerá .env se existir.
