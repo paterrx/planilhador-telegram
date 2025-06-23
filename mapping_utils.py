@@ -1,52 +1,87 @@
 # mapping_utils.py
 
-import os
-import json
-from rapidfuzz import process, fuzz
+import re
+import unicodedata
 import logging
+from config import BOOKMAKER_MAP
 
 logger = logging.getLogger(__name__)
-MAPPING_FILE = "mapping.json"
 
-def load_mapping():
-    if os.path.exists(MAPPING_FILE):
-        try:
-            with open(MAPPING_FILE, 'r', encoding='utf-8') as f:
-                mapping = json.load(f)
-            logger.debug(f"mapping.json carregado com {len(mapping)} entradas.")
-            return mapping
-        except Exception as e:
-            logger.warning("Falha ao ler mapping.json; iniciando vazio", exc_info=e)
-    return {}
+def normalize_text(s: str) -> str:
+    """
+    Remove diacríticos e normaliza texto para comparações simples.
+    """
+    nfkd = unicodedata.normalize('NFKD', s)
+    return ''.join([c for c in nfkd if not unicodedata.combining(c)])
 
-def save_mapping(mapping):
-    try:
-        with open(MAPPING_FILE, 'w', encoding='utf-8') as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=2)
-        logger.debug("mapping.json salvo.")
-    except Exception as e:
-        logger.warning("Falha ao salvar mapping.json", exc_info=e)
-
-mapping_cache = load_mapping()
-
-def get_canonical(raw_name: str, threshold: int = 85) -> str:
+def get_canonical(raw_name: str) -> str:
+    """
+    Converte raw_name em forma canônica:
+    - Strip de espaços e quebras
+    - Remove emojis/caracteres não ASCII
+    - Mapeamentos manuais (adicione conforme frequência)
+    """
     if not raw_name:
-        return raw_name
-    mapping = mapping_cache
-    if raw_name in mapping:
-        return mapping[raw_name]
-    canonical_list = list(set(mapping.values()))
-    if canonical_list:
-        best_match, score, _ = process.extractOne(
-            raw_name, canonical_list,
-            scorer=fuzz.token_sort_ratio
-        )
-        if score >= threshold:
-            mapping[raw_name] = best_match
-            save_mapping(mapping)
-            logger.debug(f"Mapeado '{raw_name}' -> '{best_match}' (score {score})")
-            return best_match
-    mapping[raw_name] = raw_name
-    save_mapping(mapping)
-    logger.debug(f"Novo raw em mapping: '{raw_name}' -> '{raw_name}'")
-    return raw_name
+        return ""
+    s = raw_name.strip()
+    # Remove caracteres não ASCII (ex.: emojis) de forma simples
+    s = re.sub(r'[^\x00-\x7F]+', '', s)
+    # Normaliza espaços
+    s = ' '.join(s.split())
+    # Mapping manual de abreviações comuns
+    mapping = {
+        "Man City": "Manchester City",
+        "City": "Manchester City",
+        "Real Madrid": "Real Madrid",
+        # Adicione conforme necessário...
+    }
+    if s in mapping:
+        return mapping[s]
+    # Opcional: normalizar acentuação
+    s_norm = normalize_text(s)
+    # Você pode aplicar title case ou outra normalização leve
+    return s_norm
+
+def normalize_bookmaker_from_url_or_text(text: str) -> str | None:
+    """
+    Detecta bookmaker a partir de URL ou texto livre, usando BOOKMAKER_MAP.
+    Retorna valor mapeado (ex.: "Bet365") ou None.
+    """
+    if not text:
+        return None
+    # Primeiro, extrai host de possíveis URLs
+    urls = re.findall(r'https?://([^/\s]+)', text)
+    for host in urls:
+        host_lower = host.lower().replace('www.', '')
+        for key, name in BOOKMAKER_MAP.items():
+            if key in host_lower:
+                logger.debug(f"normalize_bookmaker: encontrou '{key}' em host '{host_lower}' → '{name}'")
+                return name
+    # Senão, procura palavra-chave no texto
+    text_lower = text.lower()
+    for key, name in BOOKMAKER_MAP.items():
+        if key in text_lower:
+            logger.debug(f"normalize_bookmaker: encontrou '{key}' em texto → '{name}'")
+            return name
+    return None
+
+def summarize_market(mercado_raw: str) -> str:
+    """
+    Gera resumo curto a partir de mercado_raw:
+    - Junta linhas numa string única
+    - Divide por delimitadores comuns (; , . - –)
+    - Retorna a primeira parte não vazia, com até ~8 tokens
+    """
+    if not mercado_raw:
+        return ""
+    s = mercado_raw.replace('\n', ' ').strip()
+    s = ' '.join(s.split())
+    parts = re.split(r'[;.,\-–]', s)
+    for part in parts:
+        part = part.strip()
+        if part:
+            tokens = part.split()
+            return ' '.join(tokens[:8])
+    # fallback: primeiras tokens
+    tokens = s.split()
+    return ' '.join(tokens[:8])

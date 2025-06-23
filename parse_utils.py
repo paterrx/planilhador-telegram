@@ -1,144 +1,158 @@
 # parse_utils.py
 
 import re
-import urllib.parse
 import logging
-from config import PATTERN_STAKE, PATTERN_ODD, PATTERN_LIMIT, BOOKMAKER_MAP, COMPETITIONS
+from config import PATTERN_STAKE, PATTERN_LIMIT, PATTERN_ODD, RUIDO_LINES, COMPETITIONS, SPORTS_KEYWORDS
 
 logger = logging.getLogger(__name__)
 
-def clean_caption(text: str) -> str:
-    lines = []
-    for l in text.splitlines():
-        s = l.strip()
-        if not s:
+def clean_caption(raw: str) -> str:
+    """
+    Limpeza básica de legenda: remove linhas de ruído e múltiplos espaços.
+    """
+    if not raw:
+        return ""
+    s = raw.strip()
+    linhas = s.splitlines()
+    novas = []
+    for l in linhas:
+        ignora = False
+        for pat in RUIDO_LINES:
+            if re.search(pat, l):
+                ignora = True
+                break
+        if not ignora:
+            novas.append(l)
+    s2 = "\n".join(novas)
+    # junta múltiplos espaços
+    s2 = re.sub(r'\s+', ' ', s2)
+    return s2.strip()
+
+def extract_stake_list(text: str) -> list[float]:
+    """
+    Extrai todas ocorrências de stake na legenda, ex.: ["1.50%", "0.50%", ...]
+    """
+    if not text:
+        return []
+    matches = PATTERN_STAKE.findall(text)
+    stakes = []
+    for m in matches:
+        num = m.replace(',', '.')
+        try:
+            val = float(num)
+            stakes.append(val)
+        except:
             continue
-        s = re.sub(r'^[^\wÀ-ÖØ-öø-ÿ]+', '', s)
-        lines.append(s)
-    return " ".join(lines)
+    return stakes
 
-def extract_stake(text: str):
-    pcts = re.findall(PATTERN_STAKE, text)
-    if not pcts:
-        return None
-    vals = []
-    for x in pcts:
-        try:
-            vals.append(float(x.replace(',', '.')))
-        except:
-            pass
-    if not vals:
-        return None
-    stake_pct = vals[0]
-    logger.debug(f"extract_stake: encontrados {vals}, escolhido {stake_pct}")
-    return stake_pct
-
-def extract_odd(text: str):
-    m = PATTERN_ODD.search(text)
-    if m:
-        try:
-            odd = float(m.group(1).replace(',', '.'))
-            logger.debug(f"extract_odd: odd encontrada via regex={odd}")
-            return odd
-        except:
-            pass
-    m2 = re.search(r'([\d]+[.,][\d]+)\s*(?=Limite)', text)
-    if m2:
-        try:
-            odd = float(m2.group(1).replace(',', '.'))
-            logger.debug(f"extract_odd: odd fallback antes de Limite={odd}")
-            return odd
-        except:
-            pass
+def extract_stake(text: str) -> float | None:
+    """
+    Retorna apenas o primeiro stake, para casos simples.
+    """
+    lst = extract_stake_list(text)
+    if lst:
+        return lst[0]
     return None
 
-def extract_limit(text: str):
+def extract_odd_list(text: str) -> list[float]:
+    """
+    Extrai todas ocorrências de odd na legenda/texto.
+    """
+    if not text:
+        return []
+    matches = PATTERN_ODD.findall(text)
+    odds = []
+    for m in matches:
+        num = m.replace(',', '.')
+        try:
+            val = float(num)
+            odds.append(val)
+        except:
+            continue
+    return odds
+
+def extract_odd(text: str) -> float | None:
+    """
+    Retorna apenas a primeira odd da legenda.
+    """
+    lst = extract_odd_list(text)
+    if lst:
+        return lst[0]
+    return None
+
+def extract_limit(text: str) -> float | None:
+    """
+    Extrai valor de limite, ex.: 'Limite da aposta: R$50,00' → 50.0
+    """
+    if not text:
+        return None
     m = PATTERN_LIMIT.search(text)
     if m:
+        # remover pontos de milhar e normalizar vírgula decimal
+        num = m.group(1).replace('.', '').replace(',', '.')
         try:
-            lim = float(m.group(1).replace(',', '.'))
-            logger.debug(f"extract_limit: limite extraído={lim}")
-            return lim
+            return float(num)
         except:
-            pass
+            return None
     return None
 
-def normalize_bookmaker_from_url_or_text(text: str):
-    urls = re.findall(r'https?://[^\s]+', text)
-    if urls:
-        try:
-            parsed = urllib.parse.urlparse(urls[0])
-            host = (parsed.hostname or "").lower().removeprefix("www.")
-            for key, friendly in BOOKMAKER_MAP.items():
-                if key in host:
-                    logger.debug(f"normalize_bookmaker: extraído host {host}, mapeado a {friendly}")
-                    return friendly
-            logger.debug(f"normalize_bookmaker: host {host} não está em BOOKMAKER_MAP, retorna host")
-            return host
-        except Exception as e:
-            logger.debug("normalize_bookmaker: falha ao parsear URL", exc_info=e)
-    low = text.lower()
-    for key, friendly in BOOKMAKER_MAP.items():
-        if key in low:
-            logger.debug(f"normalize_bookmaker: palavra-chave '{key}' detectada, retorna {friendly}")
-            return friendly
-    logger.debug("normalize_bookmaker: nenhuma URL ou palavra-chave detectada")
-    return ""
+def parse_market(mercado_raw: str) -> tuple[str | None, str | None]:
+    """
+    Parse simplificado de mercado_raw.
+    Adapte de acordo com seus casos específicos.
+    Retorna (bet_type, selection).
+    Exemplo: 
+      - "Over 2.5 gols" → ("over", "2.5")
+      - "Under 1.5" → ("under", "1.5")
+      - Outras regras que você tenha.
+    """
+    if not mercado_raw:
+        return None, None
+    s = mercado_raw.lower()
+    # Exemplos simples:
+    # Over / Mais de
+    if "over" in s or "mais de" in s:
+        nums = re.findall(r'(\d+[.,]?\d*)', s)
+        if nums:
+            return "over", nums[0].replace(',', '.')
+    # Under / Menos de
+    if "under" in s or "menos de" in s:
+        nums = re.findall(r'(\d+[.,]?\d*)', s)
+        if nums:
+            return "under", nums[0].replace(',', '.')
+    # Ganha / Resultado exato: adapte se quiser
+    # Exemplo: “Time A ganha” → ("win", "Time A")
+    # ...
+    return None, None
 
-def parse_market(mercado_raw: str):
-    text = mercado_raw or ""
-    text_low = text.lower()
-
-    m_ou = re.search(r'\b(over|mais de|under|menos de)\s*([\d]+[.,]\d+)', text_low)
-    if m_ou:
-        palavra = m_ou.group(1)
-        num = m_ou.group(2).replace(',', '.')
-        if palavra.startswith('over') or palavra.startswith('mais'):
-            sel = f"Over {num}"
-        else:
-            sel = f"Under {num}"
-        return "OverUnder", sel
-
-    if "dupla chance" in text_low or (" ou " in text_low and any(k in text_low for k in ['empate','draw','chance','vencer'])):
-        return "DuplaChance", text.strip()
-
-    if "ambas" in text_low and "marcam" in text_low:
-        m = re.search(r'ambas.*marcam[:]*\s*(sim|não|nao)', text_low)
-        if m:
-            sel = "Ambas marcam: " + m.group(1).capitalize()
-        else:
-            sel = text.strip()
-        return "AmbasMarcam", sel
-
-    if "handicap" in text_low or re.search(r'[-–—]\s*[\d]+[.,]?[\d]*(\s*(pts|pontos))?', text_low):
-        return "Handicap", text.strip()
-
-    if "total" in text_low and ("pontos" in text_low or "gols" in text_low):
-        return "Total", text.strip()
-
-    if "marcar" in text_low and "vencer" in text_low:
-        return "PlayerGoalWin", text.strip()
-
-    return None, mercado_raw or ""
-
-def detect_competition(text: str):
+def detect_competition(text: str) -> str | None:
+    """
+    Detecta competição a partir de lista COMPETITIONS.
+    """
+    if not text:
+        return None
     for comp in COMPETITIONS:
         if comp.lower() in text.lower():
             return comp
-    return ""
+    return None
 
-def summarize_market(raw: str) -> str:
-    if not raw:
-        return ""
-    text = raw.strip()
-    parts = re.split(r'[;,/]| e | vs | x ', text, flags=re.IGNORECASE)
-    summaries = []
-    for p in parts:
-        p = p.strip()
-        if not p:
-            continue
-        words = p.split()
-        snippet = " ".join(words[:4])
-        summaries.append(snippet)
-    resumo = ", ".join(summaries[:3])
-    return resumo
+def detect_sport(text: str) -> str | None:
+    """
+    Detecta esporte a partir de palavras-chave em SPORTS_KEYWORDS.
+    Retorna a palavra do esporte (title case) ou None.
+    """
+    if not text:
+        return None
+    tlower = text.lower()
+    for kw in SPORTS_KEYWORDS:
+        if kw.lower() in tlower:
+            # Retornar com primeira letra maiúscula
+            return kw.title()
+    return None
+
+def summarize_market(mercado_raw: str) -> str:
+    """
+    Resumo de mercado: reaproveita mapping_utils ou heurística simples.
+    """
+    from mapping_utils import summarize_market as sm
+    return sm(mercado_raw or "")

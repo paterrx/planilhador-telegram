@@ -7,22 +7,31 @@ from config import SERVICE_ACCOUNT_FILE, SPREADSHEET_ID, NEW_TAB
 
 logger = logging.getLogger(__name__)
 
+# Atualizamos o HEADER para incluir as novas colunas:
+# Colocamos raw_message_identified logo após group_name, e sport ao final.
 HEADER = [
     "bet_key", "duplicate", "data_hora", "group_id", "group_name",
+    "raw_message_identified",  # novo campo
     "raw_time_casa", "raw_time_fora",
     "time_casa", "time_fora",
-    "mercado_raw", "market_summary", "odd", "stake_pct",
+    "mercado_raw", "market_summary",
+    "odd", "stake_pct",
     "actual_units", "scale", "unit_value", "amount_real", "placed",
-    "selection", "bet_type", "competition", "bookmaker"
+    "selection", "bet_type", "competition", "bookmaker",
+    "sport"  # nova coluna para esporte detectado
 ]
 
 def init_sheet():
     # Carrega credenciais
     try:
-        creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=['https://www.googleapis.com/auth/spreadsheets'])
+        creds = Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE,
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
     except Exception as e:
         logger.error("Falha ao carregar service_account.json", exc_info=e)
         raise
+
     try:
         gc = gspread.authorize(creds)
     except Exception as e:
@@ -42,32 +51,40 @@ def init_sheet():
             sheet = ss.worksheet(NEW_TAB)
             logger.info(f"Usando aba existente '{NEW_TAB}'")
         else:
-            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=30)
+            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=len(HEADER)+5)
             logger.info(f"Aba '{NEW_TAB}' criada")
     except Exception as e:
         logger.error("Falha ao selecionar/criar aba", exc_info=e)
         raise
 
-    # Inserir cabeçalho se necessário
+    # Inserir cabeçalho se necessário:
     try:
-        existing = sheet.row_values(1)
+        existing = sheet.row_values(1)  # lista de valores na primeira linha
     except Exception:
         existing = []
-    if existing != HEADER:
+
+    # Se existing vazia ou primeiro item != "bet_key", inserimos header
+    if not existing or existing[0] != HEADER[0]:
         try:
+            # Insere o header na linha 1
             sheet.insert_row(HEADER, index=1)
-            logger.info("Cabeçalho inserido na planilha")
+            logger.info("Cabeçalho inserido na planilha (linha 1).")
         except Exception as e:
             try:
+                # fallback
                 sheet.append_row(HEADER, value_input_option='USER_ENTERED')
                 logger.info("Cabeçalho adicionado via append_row")
             except Exception as e2:
                 logger.error("Falha ao inserir cabeçalho", exc_info=e2)
     else:
-        logger.info("Cabeçalho já presente")
+        logger.info("Cabeçalho já presente na planilha.")
+
     return sheet
 
 def append_row(sheet, row: list):
+    """
+    Adiciona uma linha ao final da planilha.
+    """
     try:
         sheet.append_row(row, value_input_option='USER_ENTERED')
         logger.info("Linha enviada ao Google Sheets")

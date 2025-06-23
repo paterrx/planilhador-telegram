@@ -3,14 +3,29 @@
 import os
 import asyncio
 import logging
+from datetime import timezone
+
+# Reduz logs verbosos do Telethon em nível WARNING
+logging.getLogger("telethon").setLevel(logging.WARNING)
+logging.getLogger("telethon.network").setLevel(logging.WARNING)
+
 from telethon import TelegramClient, events
-from datetime import datetime
 
 import config
 from config import API_ID, API_HASH, BANK_TOTAL, UNIT_SCALES, DEFAULT_SCALE, MONITORADOS
 from ocr_utils import limpa_linhas_ocr, extrai_times_de_linhas, extrai_todas_opcoes_mercado, perform_ocr_on_media
-from parse_utils import clean_caption, extract_stake, extract_odd, extract_limit, parse_market, detect_competition, summarize_market, normalize_bookmaker_from_url_or_text
-from mapping_utils import get_canonical
+from parse_utils import (
+    clean_caption,
+    extract_stake_list,
+    extract_odd_list,
+    extract_odd,
+    extract_limit,
+    parse_market,
+    detect_competition,
+    detect_sport,
+    summarize_market as summarize_fallback
+)
+from mapping_utils import get_canonical, normalize_bookmaker_from_url_or_text
 from dedup_utils import load_seen, save_seen, generate_bet_key
 from sheets_utils import init_sheet, append_row
 from analysis_utils import HistoricalAnalyzer
@@ -18,7 +33,6 @@ from analysis_utils import HistoricalAnalyzer
 logger = logging.getLogger(__name__)
 
 async def main():
-    # Solicita número
     phone = input("📱 Número (+55...): ").strip()
     client = TelegramClient('session', API_ID, API_HASH)
     await client.start(phone=phone)
@@ -35,11 +49,20 @@ async def main():
     seen = load_seen()
     try:
         sheet = init_sheet()
-        # Carrega histórico para aprendizado
         historical = HistoricalAnalyzer(sheet)
     except Exception:
         logger.error("Erro ao inicializar Google Sheets. Saindo.")
         return
+
+    # Comando para recarregar histórico manualmente:
+    @client.on(events.NewMessage(pattern=r'/reload_history'))
+    async def reload_history(ev):
+        try:
+            historical._load_existing()
+            await ev.reply("✅ Histórico recarregado a partir da planilha.")
+        except Exception as e:
+            logger.error("Erro ao recarregar histórico", exc_info=e)
+            await ev.reply(f"❌ Falha ao recarregar histórico: {e}")
 
     @client.on(events.NewMessage(chats=MONITORADOS))
     async def handler(ev):
@@ -50,48 +73,67 @@ async def main():
             # 1) OCR se houver mídia
             ocr_text = ""
             if ev.message.media:
-                ocr_text = await perform_ocr_on_media(ev.message)
+                try:
+                    ocr_text = await perform_ocr_on_media(ev.message)
+                except Exception as e:
+                    logger.debug("perform_ocr_on_media falhou", exc_info=e)
             lines = []
             if ocr_text:
                 lines = limpa_linhas_ocr(ocr_text)
                 logger.debug(f"[OCR] Linhas limpas: {lines}")
 
-            # 2) Limpa legenda
+            # 2) Limpa legenda/texto
             clean = clean_caption(raw)
-            logger.debug(f"[Caption] {clean}")
+            logger.debug(f"[Caption limpa] {clean}")
+
+            # Monta raw_message_identified: texto limpo + OCR bruto (opcional)
+            if ocr_text:
+                raw_msg_identified = f"{clean} || OCR: {ocr_text}"
+            else:
+                raw_msg_identified = clean
 
             # 3) Extrai bookmaker
             bookmaker = normalize_bookmaker_from_url_or_text(clean)
+            logger.debug(f"Bookmaker detectado: {bookmaker}")
 
-            # 4) Extrai stake_pct; se não houver, ignora
-            stake_pct = extract_stake(clean)
-            if stake_pct is None:
+            # 4) Extrai lista de stakes e odds da legenda
+            stake_list = extract_stake_list(clean)
+            if not stake_list:
                 logger.debug("Sem stake_pct na legenda; ignora mensagem.")
                 return
-            odd_caption = extract_odd(clean)
+            odd_caption_list = extract_odd_list(clean)
+            odd_single = extract_odd(clean)
             limit = extract_limit(clean)
-            logger.debug(f"Stake_pct={stake_pct}, odd_caption={odd_caption}, limit={limit}")
+            logger.debug(f"Stake_list={stake_list}, odd_caption_list={odd_caption_list}, limit={limit}")
 
-            # 5) Extrai apostas possíveis via OCR ou legenda
+            # 5) Extrai possíveis apostas via OCR ou legenda
             bets_to_record = []
             # Via OCR
             if lines:
-                home, away = extrai_times_de_linhas(lines)
+                try:
+                    home, away = extrai_times_de_linhas(lines)
+                except Exception as e:
+                    home = away = None
+                    logger.debug("Erro em extrai_times_de_linhas via OCR", exc_info=e)
                 if home and away:
                     logger.debug(f"Times extraídos via OCR: {home} x {away}")
-                    idx = None
-                    for i,l in enumerate(lines):
+                    idx0 = None
+                    for i, l in enumerate(lines):
                         if home in l and away in l:
-                            idx = i
+                            idx0 = i
                             break
-                    after = lines[idx+1:] if idx is not None else lines
-                    ops = extrai_todas_opcoes_mercado(after, start_index=0)
+                    after = lines[idx0+1:] if idx0 is not None else lines
+                    try:
+                        ops = extrai_todas_opcoes_mercado(after, start_index=0)
+                    except Exception as e:
+                        ops = None
+                        logger.debug("Erro em extrai_todas_opcoes_mercado via OCR", exc_info=e)
                     if ops:
                         for mkt_raw, odd_img in ops:
                             bets_to_record.append({
                                 'time_casa': home,
                                 'time_fora': away,
-                                'mercado': mkt_raw.strip(),
+                                'mercado': mkt_raw.strip() if mkt_raw else None,
                                 'odd_img': odd_img
                             })
                         logger.debug(f"Encontradas {len(ops)} opções via OCR")
@@ -106,16 +148,24 @@ async def main():
                     logger.debug("OCR não extraiu times confiáveis.")
             # Fallback legenda
             if not bets_to_record:
-                home2, away2 = extrai_times_de_linhas([clean])
+                try:
+                    home2, away2 = extrai_times_de_linhas([clean])
+                except Exception as e:
+                    home2 = away2 = None
+                    logger.debug("Erro em extrai_times_de_linhas na legenda", exc_info=e)
                 if home2 and away2:
                     logger.debug(f"Times extraídos da legenda: {home2} x {away2}")
-                    ops2 = extrai_todas_opcoes_mercado([clean], start_index=0)
+                    try:
+                        ops2 = extrai_todas_opcoes_mercado([clean], start_index=0)
+                    except Exception as e:
+                        ops2 = None
+                        logger.debug("Erro em extrai_todas_opcoes_mercado na legenda", exc_info=e)
                     if ops2:
                         for mkt_raw, odd_img in ops2:
                             bets_to_record.append({
                                 'time_casa': home2,
                                 'time_fora': away2,
-                                'mercado': mkt_raw.strip(),
+                                'mercado': mkt_raw.strip() if mkt_raw else None,
                                 'odd_img': odd_img
                             })
                         logger.debug(f"Encontradas {len(ops2)} opções via legenda")
@@ -130,18 +180,40 @@ async def main():
                     logger.debug("Não extraiu times da legenda; ignora.")
                     return
 
-            # 6) Para cada aposta, gera bet_key e envia à planilha
-            for entry in bets_to_record:
-                home = entry['time_casa']
-                away = entry['time_fora']
+            # 6) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
+            num_markets = len(bets_to_record)
+            num_stakes = len(stake_list)
+            num_odds_caption = len(odd_caption_list)
+            logger.debug(f"num_markets={num_markets}, num_stakes={num_stakes}, num_odds_caption={num_odds_caption}")
+
+            # 7) Detecta esporte a partir do raw_message_identified
+            sport = detect_sport(raw_msg_identified)
+            logger.debug(f"Esporte detectado: {sport}")
+
+            # 8) Processa cada sub-aposta
+            for idx, entry in enumerate(bets_to_record):
+                raw_home = entry['time_casa']
+                raw_away = entry['time_fora']
                 mercado_raw = entry.get('mercado')
                 odd_img = entry.get('odd_img')
 
+                # Determina stake_pct para este índice (escada)
+                if num_stakes >= num_markets:
+                    stake_pct = stake_list[idx]
+                else:
+                    stake_pct = stake_list[0]
                 # Determina odd final
-                odd_val = odd_img or odd_caption
+                if odd_img is not None:
+                    odd_val = odd_img
+                else:
+                    if num_odds_caption >= num_markets:
+                        odd_val = odd_caption_list[idx]
+                    else:
+                        odd_val = odd_single
+                logger.debug(f"[Índice {idx}] stake_pct={stake_pct}, odd_val={odd_val}")
 
                 # Dedup
-                bkey = generate_bet_key(home, away, mercado_raw, odd_val)
+                bkey = generate_bet_key(raw_home, raw_away, mercado_raw, odd_val)
                 is_dup = bkey in seen
                 if not is_dup:
                     seen.add(bkey)
@@ -151,27 +223,33 @@ async def main():
 
                 # Calcula unidades
                 scale = UNIT_SCALES.get(chat_id, DEFAULT_SCALE)
-                unit_value = round(BANK_TOTAL/scale, 2)
+                unit_value = round(BANK_TOTAL / scale, 2)
                 rec_amount = unit_value * stake_pct
                 if limit is not None and rec_amount > limit:
                     actual_amount = limit
-                    actual_units = round(limit/unit_value, 4)
+                    actual_units = round(limit / unit_value, 4)
                 else:
                     actual_amount = rec_amount
                     actual_units = stake_pct
                 logger.debug(f"unit_value={unit_value}, rec_amount={rec_amount}, actual_units={actual_units}, actual_amount={actual_amount}")
 
-                # Canonical names
-                canon_home = get_canonical(home)
-                canon_away = get_canonical(away)
-                logger.debug(f"Canonical: {home}->{canon_home}, {away}->{canon_away}")
+                # Canonicalização via histórico
+                suggest_home = historical.suggest_canonical(raw_home)
+                suggest_away = historical.suggest_canonical(raw_away)
+                canon_home = suggest_home if suggest_home else get_canonical(raw_home)
+                canon_away = suggest_away if suggest_away else get_canonical(raw_away)
+                logger.debug(f"Canonical: '{raw_home}' -> '{canon_home}', '{raw_away}' -> '{canon_away}'")
 
-                # Parse mercado etc.
+                # Parse mercado
                 bet_type, selection = parse_market(mercado_raw or "")
                 competition = detect_competition(clean + " " + (mercado_raw or ""))
-                market_summary = summarize_market(mercado_raw or "")
-                logger.debug(f"parse_market -> bet_type={bet_type}, selection={selection}")
-                logger.debug(f"competition={competition}, market_summary={market_summary}")
+                summary_parse = "" if not mercado_raw else summarize_fallback(mercado_raw)
+                summary_hist = historical.suggest_summary(mercado_raw or "")
+                if summary_hist:
+                    market_summary = summary_hist
+                else:
+                    market_summary = summary_parse or ""
+                logger.debug(f"market_summary escolhido: {market_summary}")
 
                 # Nome do grupo
                 try:
@@ -180,17 +258,19 @@ async def main():
                 except:
                     group_name = str(chat_id)
 
-                ts = ev.message.date.isoformat()
+                ts = ev.message.date.astimezone(timezone.utc).isoformat()
+
                 row = [
                     bkey,
                     is_dup,
                     ts,
                     chat_id,
                     group_name,
-                    home,        # raw_time_casa
-                    away,        # raw_time_fora
-                    canon_home,  # time_casa
-                    canon_away,  # time_fora
+                    raw_msg_identified,  # RAW_MENSAGEM_IDENTIFICADA
+                    raw_home,
+                    raw_away,
+                    canon_home,
+                    canon_away,
                     mercado_raw or '',
                     market_summary or '',
                     odd_val or '',
@@ -203,18 +283,23 @@ async def main():
                     selection or '',
                     bet_type or '',
                     competition or '',
-                    bookmaker or ''
+                    bookmaker or '',
+                    sport or ''
                 ]
-                logger.debug(f"Row p/ Sheets: {row}")
+                logger.debug(f"[Índice {idx}] Row p/ Sheets: {row}")
                 try:
                     await asyncio.to_thread(append_row, sheet, row)
                 except Exception as e:
                     logger.error("Erro ao append_row", exc_info=e)
 
-        except Exception as e:
-            logger.error("Erro no handler de NewMessage", exc_info=e)
+                # Opcional: atualizar histórico imediatamente; aqui deixamos sem ação ou chamamos historical.update
+                historical.update(raw_home, raw_away, mercado_raw or "", market_summary or "")
+
+        except Exception:
+            logger.error("Erro no handler de NewMessage", exc_info=True)
 
     try:
+        logger.info("▶️ Bot rodando. Monitorando mensagens dos grupos listados acima.")
         await client.run_until_disconnected()
     except KeyboardInterrupt:
         logger.info("Bot encerrado pelo usuário")

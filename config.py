@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
 import logging
 
 # Logging global
@@ -70,13 +69,22 @@ except ImportError:
 COMPETITIONS = [
     "NBA", "Premier League", "Copa do Mundo", "Champions", "UEFA",
     "La Liga", "Serie A", "Bundesliga", "MLS", "Copa Libertadores",
+    # Adicione outras competições frequentes
 ]
 
-# Linhas de ruído para OCR
+# Lista de palavras-chave de esportes para detecção
+SPORTS_KEYWORDS = [
+    "tênis", "tenis", "futebol", "basquete", "basketball",
+    "vôlei", "volei", "voleibol", "handebol", "hóquei", "hockey",
+    # Adicione outros esportes que desejar detectar
+]
+
+# Linhas de ruído para OCR / caption
 import re
 RUIDO_LINES = [
     r'^Aposta simples', r'^Imperdíveis', r'^Valor da aposta', r'^OOS\b',
     r'^fe\)', r'^Q \d+:\d+', r'^Hora de decidir', r'^📌', r'^🏠', r'^🆚',
+    # Adicione outros padrões que queira filtrar
 ]
 
 # Mapeamento de bookmaker por palavra-chave
