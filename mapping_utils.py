@@ -1,9 +1,7 @@
-# mapping_utils.py
-
 import re
 import unicodedata
 import logging
-from typing import Optional
+from typing import Optional  # Import necessário para as anotações que retornam Optional[str]
 from config import BOOKMAKER_MAP
 
 logger = logging.getLogger(__name__)
@@ -48,7 +46,9 @@ def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
     """
     if not text:
         return None
+
     # Primeiro, extrai host de possíveis URLs
+    # Regex simples: captura parte após https?:// até / ou espaço
     urls = re.findall(r'https?://([^/\s]+)', text)
     for host in urls:
         host_lower = host.lower().replace('www.', '')
@@ -56,12 +56,14 @@ def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
             if key in host_lower:
                 logger.debug(f"normalize_bookmaker: encontrou '{key}' em host '{host_lower}' → '{name}'")
                 return name
+
     # Senão, procura palavra-chave no texto
     text_lower = text.lower()
     for key, name in BOOKMAKER_MAP.items():
         if key in text_lower:
             logger.debug(f"normalize_bookmaker: encontrou '{key}' em texto → '{name}'")
             return name
+
     return None
 
 def summarize_market(mercado_raw: str) -> str:
@@ -75,11 +77,13 @@ def summarize_market(mercado_raw: str) -> str:
         return ""
     s = mercado_raw.replace('\n', ' ').strip()
     s = ' '.join(s.split())
+    # Divide por delimitadores comuns
     parts = re.split(r'[;.,\-–]', s)
     for part in parts:
         part = part.strip()
         if part:
             tokens = part.split()
+            # Retorna até os primeiros 8 tokens
             return ' '.join(tokens[:8])
     # fallback: primeiras tokens
     tokens = s.split()

@@ -2,7 +2,7 @@
 
 import re
 import logging
-from typing import Optional, Tuple, List
+from typing import List, Optional
 from config import PATTERN_STAKE, PATTERN_LIMIT, PATTERN_ODD, RUIDO_LINES, COMPETITIONS, SPORTS_KEYWORDS
 
 logger = logging.getLogger(__name__)
@@ -96,13 +96,10 @@ def extract_limit(text: str) -> Optional[float]:
             return None
     return None
 
-def parse_market(mercado_raw: str) -> Tuple[Optional[str], Optional[str]]:
+def parse_market(mercado_raw: str) -> (Optional[str], Optional[str]):
     """
     Parse simplificado de mercado_raw.
     Retorna (bet_type, selection).
-    Exemplos:
-      - "Over 2.5 gols" → ("over", "2.5")
-      - "Under 1.5" → ("under", "1.5")
     """
     if not mercado_raw:
         return None, None
@@ -117,7 +114,7 @@ def parse_market(mercado_raw: str) -> Tuple[Optional[str], Optional[str]]:
         nums = re.findall(r'(\d+[.,]?\d*)', s)
         if nums:
             return "under", nums[0].replace(',', '.')
-    # Outros casos podem ser adicionados aqui, ex.: "Time A ganha" etc.
+    # Poder adicionar lógica de “ganha” ou “empate” etc.
     return None, None
 
 def detect_competition(text: str) -> Optional[str]:
@@ -141,13 +138,12 @@ def detect_sport(text: str) -> Optional[str]:
     tlower = text.lower()
     for kw in SPORTS_KEYWORDS:
         if kw.lower() in tlower:
-            # Retornar com primeira letra maiúscula
             return kw.title()
     return None
 
 def summarize_market(mercado_raw: str) -> str:
     """
-    Resumo de mercado: reaproveita mapping_utils ou heurística simples.
+    Resumo de mercado: reaproveita heurística de mapping_utils ou heurística simples.
     """
     from mapping_utils import summarize_market as sm
     return sm(mercado_raw or "")

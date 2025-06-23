@@ -12,10 +12,11 @@
       ]
     }
   },
-  "postCreateCommand": "python3 -m pip install --upgrade pip && pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
+  // Primeiro instala libs Python, depois decodifica credenciais se houver
+  "postCreateCommand": "python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
   "remoteUser": "vscode",
   "containerEnv": {
-    // Ajuste conforme onde o tessdata foi instalado no container:
+    // Ajuste de variável para Tesseract; confirme se este é o path correto dentro do container
     "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/4.00/"
   }
 }

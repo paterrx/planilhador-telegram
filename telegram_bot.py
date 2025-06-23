@@ -4,6 +4,7 @@ import os
 import asyncio
 import logging
 import base64
+import re  # <--- necessário para usar re.search em handler
 from datetime import timezone
 
 # reduzir logs verbosos do telethon
@@ -89,7 +90,7 @@ async def main():
     @client.on(events.NewMessage(pattern=r'/reload_history'))
     async def reload_history(ev):
         try:
-            historical.reload()
+            historical._load_existing()
             await ev.reply("✅ Histórico recarregado a partir da planilha.")
         except Exception as e:
             logger.error("Erro ao recarregar histórico", exc_info=e)
@@ -117,7 +118,7 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # RAW_MENSAGEM_IDENTIFICADA: combina legenda limpa e OCR cru
+            # RAW_MENSAGEM_IDENTIFICADA: mantemos texto + OCR bruto (se existir)
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
@@ -206,29 +207,8 @@ async def main():
                             'odd_img': None
                         })
                 else:
-                    logger.debug("Não extraiu times da legenda via OCR/regex.")
-                    # 5.b) Fallback adicional: padrões como "Time ou Empate"
-                    # Exemplo: "Palmeiras ou Empate" ou "Team ou Draw"
-                    m = None
-                    # tenta detectar "<Team> ou Empate"
-                    pat = re.search(r'([A-Za-zÀ-ÿ0-9\s]+?)\s+ou\s+Empate', clean, flags=re.IGNORECASE)
-                    if pat:
-                        team_raw = pat.group(1).strip()
-                        # Tenta canonicalizar via histórico ou mapping_utils
-                        canon_team = historical.suggest_canonical(team_raw) or get_canonical(team_raw)
-                        # Tenta sugerir adversário via histórico
-                        opponent = historical.suggest_opponent(canon_team)
-                        if opponent:
-                            logger.debug(f"Fallback 'ou Empate': detectou time '{team_raw}', sugeriu adversário '{opponent}'")
-                            bets_to_record.append({
-                                'time_casa': canon_team,
-                                'time_fora': opponent,
-                                'mercado': clean,  # manter raw para análise de mercado
-                                'odd_img': None
-                            })
-                    if not bets_to_record:
-                        logger.debug("Ignorando mensagem: sem times confiáveis e sem fallback histórico.")
-                        return
+                    logger.debug("Não extraiu times da legenda; ignora.")
+                    return
 
             # 6) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
             num_markets = len(bets_to_record)
@@ -292,11 +272,32 @@ async def main():
 
                 # Parse mercado
                 bet_type, selection = parse_market(mercado_raw or "")
-                competition = detect_competition(clean + " " + (mercado_raw or "")) or ""
+                competition = detect_competition(clean + " " + (mercado_raw or ""))
                 summary_parse = "" if not mercado_raw else summarize_fallback(mercado_raw)
                 summary_hist = historical.suggest_summary(mercado_raw or "")
                 market_summary = summary_hist if summary_hist else (summary_parse or "")
                 logger.debug(f"market_summary escolhido: {market_summary}")
+
+                # Exemplo de detecção de “ou Empate” em mercados tipo “Palmeiras ou Empate”
+                # Se desejar tratar especificamente: 
+                # Se a clean caption contiver “X ou Empate”, você pode extrair X como raw_home e raw_away vazio ou “Empate”.
+                # Exemplo simplificado:
+                # Note: ajustado para evitar NameError porque importamos re no topo.
+                pat = re.search(r'([A-Za-zÀ-ÿ0-9\s]+?)\s+ou\s+Empate', clean, flags=re.IGNORECASE)
+                if pat:
+                    guess = pat.group(1).strip()
+                    # Neste caso, raw_home = guess, raw_away = "" ou "Empate"? Depende de como deseja armazenar.
+                    # Aqui simplesmente: se extraído, forçamos raw_home=guess e raw_away="Empate"
+                    raw_home = guess
+                    raw_away = "Empate"
+                    logger.debug(f"Mercado do tipo 'X ou Empate' detectado: home='{raw_home}', away='{raw_away}'")
+                    # Se quiser, recalcule canonical via histórico/get_canonical:
+                    suggest_home = historical.suggest_canonical(raw_home)
+                    canon_home = suggest_home if suggest_home else get_canonical(raw_home)
+                    canon_away = "Empate"
+                    bet_type = "draw_or_win"
+                    selection = guess  # ou outra lógica, conforme seu parse
+                    # market_summary já está definido acima
 
                 # Nome do grupo
                 try:
@@ -339,7 +340,7 @@ async def main():
                 except Exception as e:
                     logger.error("Erro ao append_row", exc_info=e)
 
-                # Atualiza histórico apenas de mercado para futuras sugestões (nome aguarda recarga manual)
+                # Atualiza histórico
                 historical.update(raw_home, raw_away, mercado_raw or "", market_summary or "")
 
         except Exception:

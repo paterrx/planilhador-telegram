@@ -1,33 +1,22 @@
-# Use a imagem oficial de Dev Container Python
+# Dockerfile
 FROM mcr.microsoft.com/devcontainers/python:3.9
 
-# Precisamos rodar apt-get como root
-USER root
-
-# Instalar Tesseract OCR e o idioma português
+# Instala Tesseract e idiomas (pt e eng)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-         tesseract-ocr \
-         tesseract-ocr-por \
-         # Dependências adicionais se necessário:
-         libtesseract-dev \
-         libleptonica-dev \
-         pkg-config \
+       tesseract-ocr \
+       tesseract-ocr-por \
+       tesseract-ocr-eng \
+       libtesseract-dev \
+       libleptonica-dev \
+       pkg-config \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-
-# Volta para usuário vscode
-USER vscode
 
 WORKDIR /workspace
 
-# Copia apenas requirements para aproveitar cache de layers
 COPY requirements.txt /workspace/requirements.txt
-
-# Instala dependências Python imediatamente (poderia ser no postCreateCommand, mas este RUN garante já em build)
-RUN python3 -m pip install --upgrade pip \
+RUN pip install --upgrade pip \
     && pip install -r /workspace/requirements.txt
 
-# Copia o restante do código para dentro do container
 COPY . /workspace
-
-# (Opcional) Se precisar expor portas, defina aqui, etc.
