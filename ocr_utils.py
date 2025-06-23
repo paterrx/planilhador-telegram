@@ -6,7 +6,6 @@ import logging
 from PIL import Image, UnidentifiedImageError
 import pytesseract
 from config import RUIDO_LINES, logger
-# Evitar import cíclico pesado; detect_sport é leve
 from parse_utils import detect_sport
 
 def limpa_linhas_ocr(ocr_text: str):
@@ -30,40 +29,34 @@ def limpa_linhas_ocr(ocr_text: str):
 
 def extrai_times_de_linhas(lines):
     """
-    Tenta extrair pares (home, away) de uma lista de linhas de OCR.
-    - Usa detect_sport para ajustar heurísticas (ex.: tênis vs futebol).
-    - Para tênis, procura padrões de 'Jogador A vs Jogador B' ou deduz de linhas separadas.
-    - Para outros esportes, procura 'Time A x Time B', 'Time A vs Time B', 'Time A - Time B'.
-    Retorna tupla (home, away) ou (None, None) se falhar.
+    Extrai home/away das linhas OCR, com heurísticas específicas para tênis e gerais.
     """
     if not lines:
         return None, None
 
     texto_junto = " ".join(lines)
-    sport = detect_sport(texto_junto)  # ex.: 'Tênis', 'Futebol'
+    sport = detect_sport(texto_junto)
     sport_l = sport.lower() if sport else None
 
-    # Heurística específica para tênis
+    # Tênis
     if sport_l and ("tênis" in sport_l or "tenis" in sport_l):
-        # Padrão 'A vs B' numa linha
         for l in lines:
-            m = re.search(r'([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50}?)\s*(?:vs\.?|x|×|-\s*)\s*([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50})',
-                          l, flags=re.IGNORECASE)
+            m = re.search(
+                r'([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50}?)\s*(?:vs\.?|x|×|-\s*)\s*([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50})',
+                l, flags=re.IGNORECASE)
             if m:
                 left = m.group(1).strip()
                 right = m.group(2).strip()
-                # Filtra nomes curtos / ruído: exigir pelo menos 2 palavras (nome + sobrenome)
-                def parece_nome(s: str) -> bool:
+                def parece_nome(s):
                     parts = s.split()
                     return len(parts) >= 2 and all(re.match(r'^[A-ZÀ-Ÿ]', p) for p in parts)
                 if parece_nome(left) and parece_nome(right):
                     logger.debug(f"extrai_times_de_linhas (Tênis linha única): '{left}' x '{right}'")
                     return left, right
-        # Se não achou, usar duas primeiras linhas se parecem nomes
         if len(lines) >= 2:
             l0 = lines[0].strip()
             l1 = lines[1].strip()
-            def parece_nome(s: str) -> bool:
+            def parece_nome(s):
                 parts = s.split()
                 return len(parts) >= 2 and all(re.match(r'^[A-ZÀ-Ÿ]', p) for p in parts)
             if parece_nome(l0) and parece_nome(l1):
@@ -71,17 +64,15 @@ def extrai_times_de_linhas(lines):
                 return l0, l1
         return None, None
 
-    # Heurística geral (futebol, basquete, etc.)
+    # Geral (futebol, basquete, etc.)
     for l in lines:
         low = l.lower()
-        # Ignorar linhas que mostrem mercados/odds
         if re.search(r'\b(mais de|under|over|total|empate|ambas|handicap|defesas|pontos)\b', low):
             continue
         m = re.search(r'(.+?)\s*(?:x|vs\.?|v|×|-\s*)\s*(.+)', l, flags=re.IGNORECASE)
         if m:
             left = m.group(1).strip()
             right = m.group(2).strip()
-            # Limpeza: remover timestamps ou prefixos
             left2 = re.sub(r'^\d{1,2}[:h]\d{2}\s*', '', left).strip()
             right2 = re.sub(r'^\d{1,2}[:h]\d{2}\s*', '', right).strip()
             left2 = re.sub(r'^(OOS\s+|fe\)\s*)', '', left2, flags=re.IGNORECASE).strip()
@@ -93,38 +84,29 @@ def extrai_times_de_linhas(lines):
 
 def extrai_todas_opcoes_mercado(lines, start_index=0):
     """
-    Tenta extrair de cada linha opções de mercado + odd extraída (se lograr):
-    Retorna lista de tuplas (mercado_raw, odd_img) onde odd_img é float ou None.
+    Extrai mercados e possíveis odds de OCR lines.
+    Retorna lista de (mercado_raw, odd_img).
     """
     resultados = []
     for i in range(start_index, len(lines)):
         l = lines[i].strip()
         odd_val = None
-        # Tenta extrair odd a partir de padrões como '2.35x' ou '@2.35'
         m_odd = re.search(r'([\d]+[.,][\d]+)\s*x\b', l, flags=re.IGNORECASE)
         if m_odd:
             try:
                 odd_val = float(m_odd.group(1).replace(',', '.'))
             except:
                 odd_val = None
-        else:
-            m_at = re.search(r'@([\d]+[.,][\d]+)', l)
-            if m_at:
-                try:
-                    odd_val = float(m_at.group(1).replace(',', '.'))
-                except:
-                    odd_val = None
         low = l.lower()
         achou = False
         if re.search(r'\b(Mais de|Under|Over)\s*[\d]+[.,]?[\d]*', l, flags=re.IGNORECASE):
             achou = True
-        elif ' ou ' in low and 'empate' in low:
+        elif ' ou ' in low and any(k in low for k in ['empate','draw','chance','vencer']):
             achou = True
         elif re.match(r'.+?[-–—]\s*[\d]+[.,]?[\d]*(\s*(pts|pontos))?', l, flags=re.IGNORECASE):
             achou = True
         elif 'defesas do goleiro' in low and re.search(r'Mais de\s*[\d]+[.,]?[\d]*', l, flags=re.IGNORECASE):
             achou = True
-        # Outras heurísticas específicas podem ser adicionadas aqui...
         if achou:
             resultados.append((l, odd_val))
     return resultados
@@ -152,12 +134,11 @@ async def perform_ocr_on_media(message, download_folder='downloads'):
     except Exception as e:
         logger.debug("Erro ao abrir imagem para OCR:", exc_info=e)
         return ""
-    # Tentar idiomas em ordem: por, eng. Ajuste se tiver outros langs instalados.
-    for lang in ['por', 'eng']:
+    # Tenta primeiro português, depois inglês
+    for lang in ["por", "eng"]:
         try:
-            logger.debug(f"Tentando OCR com idioma '{lang}'")
             ocr_text = pytesseract.image_to_string(img, lang=lang)
-            if ocr_text and ocr_text.strip():
+            if ocr_text:
                 return ocr_text
         except pytesseract.pytesseract.TesseractError as e:
             logger.debug(f"OCR TesseractError ({lang}):", exc_info=e)

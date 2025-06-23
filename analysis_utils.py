@@ -37,7 +37,6 @@ class HistoricalAnalyzer:
             if not all_values:
                 return
             header = all_values[0]
-            # Espera colunas conforme sheets_utils.HEADER
             # Encontrar índices pelas strings exatas:
             try:
                 idx_raw_home = header.index("raw_time_casa")
@@ -53,7 +52,6 @@ class HistoricalAnalyzer:
                 return
 
             for row in all_values[1:]:
-                # Proteção: verificar comprimento suficiente
                 if len(row) <= max(idx_raw_home, idx_raw_away, idx_canon_home, idx_canon_away, idx_raw_market, idx_summary):
                     continue
                 raw_home = row[idx_raw_home].strip()
@@ -116,10 +114,7 @@ class HistoricalAnalyzer:
 
     def suggest_opponent(self, raw_name: str) -> Optional[str]:
         """
-        Dada uma raw_name (ex.: 'Palmeiras'), tenta obter canonical ou normalizar, e buscar
-        em histórico adversário frequente:
-        - Se houver apenas um adversário no histórico ou um claro mais frequente, retorna-o.
-        - Caso contrário, None.
+        Dada uma raw_name, tenta canonical ou normalizar, e buscar adversário frequente:
         """
         if not raw_name:
             return None
@@ -136,17 +131,18 @@ class HistoricalAnalyzer:
     def update(self, raw_home: str, raw_away: str, mercado_raw: str, summary: str) -> None:
         """
         Atualiza o histórico em memória com nova entrada após planilhar:
-        Apenas mapeamentos de mercado_summary; nomes e opponents aguardam reload manual (/reload_history).
+        Apenas summaries; nomes e adversários recarregam via /reload_history.
         """
         if mercado_raw and summary:
             with self._lock:
-                if raw_market := mercado_raw.strip():
-                    if raw_market not in self._summary_map:
-                        self._summary_map[raw_market] = summary
+                if raw_home or raw_away:
+                    # summary map
+                    if mercado_raw not in self._summary_map:
+                        self._summary_map[mercado_raw] = summary
 
     def reload(self) -> None:
         """
-        Recarrega todo o histórico a partir da planilha; pode ser chamado via comando.
+        Recarrega todo o histórico a partir da planilha.
         """
         with self._lock:
             self._canonical_map.clear()

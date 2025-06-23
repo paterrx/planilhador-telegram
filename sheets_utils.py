@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 HEADER = [
     "bet_key", "duplicate", "data_hora", "group_id", "group_name",
-    "raw_mensagem_identificada",  # nova coluna
+    "RAW_MENSAGEM_IDENTIFICADA",  # ajustado coluna extra
     "raw_time_casa", "raw_time_fora",
     "time_casa", "time_fora",
     "mercado_raw", "market_summary", "odd", "stake_pct",
@@ -43,7 +43,7 @@ def init_sheet():
             sheet = ss.worksheet(NEW_TAB)
             logger.info(f"Usando aba existente '{NEW_TAB}'")
         else:
-            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=len(HEADER)+5)
+            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=30)
             logger.info(f"Aba '{NEW_TAB}' criada")
     except Exception as e:
         logger.error("Falha ao selecionar/criar aba", exc_info=e)

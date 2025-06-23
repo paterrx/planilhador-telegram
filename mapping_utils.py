@@ -1,5 +1,3 @@
-# mapping_utils.py
-
 import re
 import unicodedata
 import logging
@@ -20,39 +18,29 @@ def get_canonical(raw_name: str) -> str:
     Converte raw_name em forma canônica:
     - Strip de espaços e quebras
     - Remove emojis/caracteres não ASCII
-    - Mapeamentos manuais (adicione conforme frequência)
-    - Normaliza acentuação
+    - Mapeamentos manuais
     """
     s = raw_name.strip()
-    # Remove caracteres não ASCII (ex.: emojis) de forma simples
-    # aqui removemos caracteres de controle e emojis
-    s = re.sub(r'[^\x00-\x7F]+', '', s)
-    # Normaliza espaços
+    s = re.sub(r'[^\x00-\x7F]+', '', s)  # remove não ASCII
     s = ' '.join(s.split())
-    # Title case leve (mas preservar siglas?), aqui mantemos como está após limpeza
-    # Mapeamentos manuais de abreviações comuns
     mapping = {
         "Man City": "Manchester City",
         "City": "Manchester City",
-        "Atl Madrid": "Atl Madrid",  # se quiser uniformizar para "Atlético Madrid"
+        "Real Madrid": "Real Madrid",
         # Adicione conforme necessário...
     }
     if s in mapping:
         return mapping[s]
-    # Opcional: normalizar acentuação, mantendo case original ou title case
     s_norm = normalize_text(s)
-    # Poderíamos aplicar title case: s_norm.title(), mas em alguns times acentos e artigos podem se perder
-    # Retorna versão sem diacríticos mas mantém maiúsculas/minúsculas como no raw
     return s_norm
 
 def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
     """
     Detecta bookmaker a partir de URL ou texto livre, usando BOOKMAKER_MAP.
-    Retorna valor mapeado (ex.: "Bet365") ou None.
     """
     if not text:
         return None
-    # Primeiro, extrai host de possíveis URLs
+    # Extrai host de URLs
     urls = re.findall(r'https?://([^/\s]+)', text)
     for host in urls:
         host_lower = host.lower().replace('www.', '')
@@ -60,7 +48,7 @@ def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
             if key in host_lower:
                 logger.debug(f"normalize_bookmaker: encontrou '{key}' em host '{host_lower}' → '{name}'")
                 return name
-    # Senão, procura palavra-chave no texto
+    # Procura palavra-chave no texto
     text_lower = text.lower()
     for key, name in BOOKMAKER_MAP.items():
         if key in text_lower:
@@ -73,7 +61,7 @@ def summarize_market(mercado_raw: str) -> str:
     Gera resumo curto a partir de mercado_raw:
     - Junta linhas numa string única
     - Divide por delimitadores comuns (; , . - –)
-    - Retorna a primeira parte não vazia, com até ~8 tokens
+    - Retorna a primeira parte não vazia, até ~8 tokens
     """
     if not mercado_raw:
         return ""
@@ -85,6 +73,5 @@ def summarize_market(mercado_raw: str) -> str:
         if part:
             tokens = part.split()
             return ' '.join(tokens[:8])
-    # fallback: primeiras tokens
     tokens = s.split()
     return ' '.join(tokens[:8])

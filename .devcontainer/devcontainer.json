@@ -1,9 +1,8 @@
-// .devcontainer/devcontainer.json
 {
   "name": "Planilhador Telegram",
   "build": {
-    "dockerfile": "Dockerfile",   // este Dockerfile está em .devcontainer/Dockerfile
-    "context": ".."               // sobe um nível: contexto = raiz do repositório
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
   "customizations": {
     "vscode": {
@@ -13,10 +12,8 @@
       ]
     }
   },
-  // Após criar o container, instala dependências e decodifica service account se fornecido
-  "postCreateCommand": "python3 -m pip install --upgrade pip && pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
+  "postCreateCommand": "if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
   "remoteUser": "vscode",
-  // Ajuste de variável para Tesseract, se necessário:
   "containerEnv": {
     "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/4.00/"
   }

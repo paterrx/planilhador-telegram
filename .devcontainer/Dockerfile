@@ -1,8 +1,6 @@
-# .devcontainer/Dockerfile
-
 FROM mcr.microsoft.com/devcontainers/python:3.9
 
-# Instala Tesseract e idiomas
+# Instala Tesseract e idiomas português e inglês
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        tesseract-ocr \
@@ -16,11 +14,10 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-# Copia requirements primeiro (contexto é a raiz do repo, onde requirements.txt está)
+# Copia requirements e instala
 COPY requirements.txt /workspace/requirements.txt
-
 RUN pip install --upgrade pip \
     && pip install -r /workspace/requirements.txt
 
-# Copia todo o projeto para dentro do container
+# Copia todo o código
 COPY . /workspace

@@ -4,7 +4,6 @@ import os
 import asyncio
 import logging
 import base64
-import re
 from datetime import timezone
 
 # reduzir logs verbosos do telethon
@@ -14,7 +13,7 @@ logging.getLogger("telethon.network").setLevel(logging.WARNING)
 from telethon import TelegramClient, events
 
 import config
-from config import API_ID, API_HASH, BANK_TOTAL, UNIT_SCALES, DEFAULT_SCALE, MONITORADOS
+from config import API_ID, API_HASH, BANK_TOTAL, UNIT_SCALES, DEFAULT_SCALE, MONITORADOS, SERVICE_ACCOUNT_FILE
 from ocr_utils import limpa_linhas_ocr, extrai_times_de_linhas, extrai_todas_opcoes_mercado, perform_ocr_on_media
 from parse_utils import (
     clean_caption,
@@ -63,7 +62,6 @@ def ensure_service_account_file():
             logger.info(f"Usando service account existente em '{sa_file}'")
 
 async def main():
-    # Garante credenciais antes de init_sheet
     ensure_service_account_file()
 
     phone = input("📱 Número (+55...): ").strip()
@@ -117,28 +115,27 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # 3) RAW_MENSAGEM_IDENTIFICADA
+            # RAW_MENSAGEM_IDENTIFICADA
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
                 raw_msg_identified = clean
 
-            # 4) Extrai bookmaker
+            # 3) Extrai bookmaker
             bookmaker = normalize_bookmaker_from_url_or_text(clean)
             logger.debug(f"Bookmaker detectado: {bookmaker}")
 
-            # 5) Extrai stake(s) e odd(s) da legenda
+            # 4) Extrai stake(s) e odd(s)
             stake_list = extract_stake_list(clean)
+            if not stake_list:
+                logger.debug("Sem stake_pct na legenda; ignora mensagem.")
+                return
             odd_caption_list = extract_odd_list(clean)
             odd_single = extract_odd(clean)
             limit = extract_limit(clean)
             logger.debug(f"Stake_list={stake_list}, odd_caption_list={odd_caption_list}, limit={limit}")
-            if not stake_list:
-                # Sem stake na legenda; possivelmente há stake na imagem ou contexto não detectado => ignorar
-                logger.debug("Sem stake_pct na legenda; ignora mensagem.")
-                return
 
-            # 6) Extrai possíveis apostas via OCR ou legenda
+            # 5) Extrai possíveis apostas via OCR ou legenda
             bets_to_record = []
             if lines:
                 try:
@@ -178,7 +175,6 @@ async def main():
                 else:
                     logger.debug("OCR não extraiu times confiáveis.")
             if not bets_to_record:
-                # Fallback usando legenda limpa
                 try:
                     home2, away2 = extrai_times_de_linhas([clean])
                 except Exception as e:
@@ -208,99 +204,32 @@ async def main():
                             'odd_img': None
                         })
                 else:
-                    # Tentar extrair múltiplas apostas concatenadas: heurística simples
-                    # Exemplo: texto contém várias ocorrências de "⚽️ ... 💰 X,u @Y" concatenadas
-                    segments = []
-                    # Se há repetição de "💰" ou "u @" no texto, split aproximado
-                    if "💰" in clean or "u @" in clean.lower() or "u @" in clean:
-                        # Dividir por emoji de stake "💰"
-                        parts = clean.split("💰")
-                        # Reconstroem cada segmento adicionando "💰" de volta (exceto o primeiro)
-                        for idx, part in enumerate(parts):
-                            if idx == 0:
-                                seg = part.strip()
-                            else:
-                                seg = "💰" + part.strip()
-                            if seg:
-                                segments.append(seg.strip())
-                    # Para cada segmento, tentar extrair times
-                    for seg in segments:
-                        try:
-                            h2, a2 = extrai_times_de_linhas([seg])
-                        except:
-                            h2 = a2 = None
-                        if h2 and a2:
-                            try:
-                                ops_seg = extrai_todas_opcoes_mercado([seg], start_index=0)
-                            except:
-                                ops_seg = None
-                            if ops_seg:
-                                for mkt_raw, odd_img in ops_seg:
-                                    bets_to_record.append({
-                                        'time_casa': h2,
-                                        'time_fora': a2,
-                                        'mercado': mkt_raw.strip() if mkt_raw else None,
-                                        'odd_img': odd_img
-                                    })
-                            else:
-                                bets_to_record.append({
-                                    'time_casa': h2,
-                                    'time_fora': a2,
-                                    'mercado': None,
-                                    'odd_img': None
-                                })
-                    if not bets_to_record:
-                        logger.debug("Não extraiu times da legenda; ignora.")
-                        return
+                    logger.debug("Não extraiu times da legenda; ignora.")
+                    return
 
-            # 7) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
+            # 6) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
             num_markets = len(bets_to_record)
             num_stakes = len(stake_list)
             num_odds_caption = len(odd_caption_list)
             logger.debug(f"num_markets={num_markets}, num_stakes={num_stakes}, num_odds_caption={num_odds_caption}")
 
-            # 8) Detecta esporte
+            # 7) Detecta esporte
             sport = detect_sport(raw_msg_identified)
             logger.debug(f"Esporte detectado: {sport}")
 
-            # 9) Processa cada sub-aposta
+            # 8) Processa cada sub-aposta
             for idx, entry in enumerate(bets_to_record):
                 raw_home = entry['time_casa']
                 raw_away = entry['time_fora']
                 mercado_raw = entry.get('mercado')
                 odd_img = entry.get('odd_img')
 
-                # Escolha stake_pct:
-                stake_pct = None
-                stake_or_val = None
+                # stake_pct por índice (escada)
                 if num_stakes >= num_markets:
-                    stake_or_val = stake_list[idx]
+                    stake_pct = stake_list[idx]
                 else:
-                    stake_or_val = stake_list[0]
-                # Se stake_or_val veio de extract_stake_list, pode ser percent (quando extraído de "%"/"u") ou valor em reais
-                # Decidir se é percent/unidade ou valor real: se legenda continha "%" ou "u", trata como percent/unidades; 
-                # caso contrário, se stake_or_val razoável para R$ (ex.: >1 e não detectou "%" no clean), converter:
-                # Heurística: se o texto original não contém "%" nem "u" mas contém "R$" + valor, assumimos stake_or_val em reais.
-                if isinstance(stake_or_val, float):
-                    text_lower = clean.lower()
-                    if ('%' in clean or 'u' in clean.lower()):
-                        stake_pct = stake_or_val
-                    else:
-                        # interpreta stake_or_val como valor em reais
-                        # converter para unidades = valor_real / unit_value
-                        scale_tmp = UNIT_SCALES.get(chat_id, DEFAULT_SCALE)
-                        unit_value_tmp = round(BANK_TOTAL / scale_tmp, 2)
-                        try:
-                            stake_pct = round(stake_or_val / unit_value_tmp, 4)
-                        except:
-                            stake_pct = stake_or_val  # fallback
-                else:
-                    stake_pct = None
-                if stake_pct is None:
-                    logger.debug(f"Não conseguiu determinar stake_pct para raw value {stake_or_val}; pula sub-aposta.")
-                    continue
-
-                # Escolha odd final
+                    stake_pct = stake_list[0]
+                # odd final
                 if odd_img is not None:
                     odd_val = odd_img
                 else:
@@ -319,7 +248,7 @@ async def main():
                     logger.debug(f"Novo bet_key salvo: {bkey}")
                 logger.debug(f"bet_key={bkey}, duplicate={is_dup}")
 
-                # Unidades e amount
+                # Unidades
                 scale = UNIT_SCALES.get(chat_id, DEFAULT_SCALE)
                 unit_value = round(BANK_TOTAL / scale, 2)
                 rec_amount = unit_value * stake_pct
@@ -341,7 +270,6 @@ async def main():
                 # Parse mercado
                 bet_type, selection = parse_market(mercado_raw or "")
                 competition = detect_competition(clean + " " + (mercado_raw or ""))
-                # Summary: prefer histórico se disponível
                 summary_parse = "" if not mercado_raw else summarize_fallback(mercado_raw)
                 summary_hist = historical.suggest_summary(mercado_raw or "")
                 market_summary = summary_hist if summary_hist else (summary_parse or "")
@@ -356,14 +284,13 @@ async def main():
 
                 ts = ev.message.date.astimezone(timezone.utc).isoformat()
 
-                # Monta linha no Google Sheets, observando novo cabeçalho com RAW_MENSAGEM_IDENTIFICADA
                 row = [
                     bkey,
                     is_dup,
                     ts,
                     chat_id,
                     group_name,
-                    raw_msg_identified,  # RAW_MENSAGEM_IDENTIFICADA
+                    raw_msg_identified,
                     raw_home,
                     raw_away,
                     canon_home,
@@ -389,7 +316,7 @@ async def main():
                 except Exception as e:
                     logger.error("Erro ao append_row", exc_info=e)
 
-                # Atualiza histórico de summaries (nomes aguardam reload manual)
+                # Atualiza histórico
                 historical.update(raw_home, raw_away, mercado_raw or "", market_summary or "")
 
         except Exception:
