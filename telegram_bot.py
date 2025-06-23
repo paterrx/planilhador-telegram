@@ -55,7 +55,6 @@ def ensure_service_account_file():
             logger.error("Falha ao escrever arquivo de credenciais Service Account", exc_info=e)
             raise
     else:
-        # Se não há Base64, espera que o arquivo já exista localmente
         if not os.path.exists(sa_file):
             logger.error(f"Service account file '{sa_file}' não encontrado e SERVICE_ACCOUNT_JSON_B64 não definido.")
             raise FileNotFoundError(f"Service account file '{sa_file}' não existe e nenhuma credencial em SERVICE_ACCOUNT_JSON_B64.")
@@ -63,10 +62,9 @@ def ensure_service_account_file():
             logger.info(f"Usando service account existente em '{sa_file}'")
 
 async def main():
-    # 0) Garante credenciais antes de init_sheet
+    # Garante credenciais antes de init_sheet
     ensure_service_account_file()
 
-    # 1) Solicita número do Telegram
     phone = input("📱 Número (+55...): ").strip()
     client = TelegramClient('session', API_ID, API_HASH)
     await client.start(phone=phone)
@@ -79,7 +77,6 @@ async def main():
     logger.info(f"Conectado como @{me.username} (ID {me.id})")
     logger.info(f"Monitorando grupos: {MONITORADOS}")
 
-    # 2) Carrega seen e inicializa Google Sheets e histórico
     seen = load_seen()
     try:
         sheet = init_sheet()
@@ -119,17 +116,17 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # 3) RAW_MENSAGEM_IDENTIFICADA
+            # RAW_MENSAGEM_IDENTIFICADA
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
                 raw_msg_identified = clean
 
-            # 4) Extrai bookmaker
+            # 3) Extrai bookmaker
             bookmaker = normalize_bookmaker_from_url_or_text(clean)
             logger.debug(f"Bookmaker detectado: {bookmaker}")
 
-            # 5) Extrai stake(s) e odd(s) da legenda
+            # 4) Extrai stake(s) e odd(s) da legenda
             stake_list = extract_stake_list(clean)
             if not stake_list:
                 logger.debug("Sem stake_pct na legenda; ignora mensagem.")
@@ -139,7 +136,7 @@ async def main():
             limit = extract_limit(clean)
             logger.debug(f"Stake_list={stake_list}, odd_caption_list={odd_caption_list}, limit={limit}")
 
-            # 6) Extrai possíveis apostas via OCR ou legenda
+            # 5) Extrai possíveis apostas via OCR ou legenda
             bets_to_record = []
             if lines:
                 try:
@@ -211,17 +208,17 @@ async def main():
                     logger.debug("Não extraiu times da legenda; ignora.")
                     return
 
-            # 7) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
+            # 6) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
             num_markets = len(bets_to_record)
             num_stakes = len(stake_list)
             num_odds_caption = len(odd_caption_list)
             logger.debug(f"num_markets={num_markets}, num_stakes={num_stakes}, num_odds_caption={num_odds_caption}")
 
-            # 8) Detecta esporte
+            # 7) Detecta esporte
             sport = detect_sport(raw_msg_identified)
             logger.debug(f"Esporte detectado: {sport}")
 
-            # 9) Processa cada sub-aposta
+            # 8) Processa cada sub-aposta
             for idx, entry in enumerate(bets_to_record):
                 raw_home = entry['time_casa']
                 raw_away = entry['time_fora']
@@ -229,7 +226,7 @@ async def main():
                 odd_img = entry.get('odd_img')
 
                 # stake_pct por índice (escada)
-                if num_stakes >= num_markets:
+                if num_stakes >= num_markets and idx < num_stakes:
                     stake_pct = stake_list[idx]
                 else:
                     stake_pct = stake_list[0]
@@ -237,7 +234,7 @@ async def main():
                 if odd_img is not None:
                     odd_val = odd_img
                 else:
-                    if num_odds_caption >= num_markets:
+                    if num_odds_caption >= num_markets and idx < num_odds_caption:
                         odd_val = odd_caption_list[idx]
                     else:
                         odd_val = odd_single

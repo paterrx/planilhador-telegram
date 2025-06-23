@@ -1,9 +1,8 @@
-# mapping_utils.py
-
 import re
 import unicodedata
 import logging
 from config import BOOKMAKER_MAP
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ def get_canonical(raw_name: str) -> str:
     # Pode aplicar title case ou outra normalização leve
     return s_norm
 
-def normalize_bookmaker_from_url_or_text(text: str) -> str | None:
+def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
     """
     Detecta bookmaker a partir de URL ou texto livre, usando BOOKMAKER_MAP.
     Retorna valor mapeado (ex.: "Bet365") ou None.
