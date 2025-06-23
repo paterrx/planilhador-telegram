@@ -2,7 +2,7 @@
 
 import re
 import logging
-from typing import Optional, List
+from typing import Optional, Tuple, List
 from config import PATTERN_STAKE, PATTERN_LIMIT, PATTERN_ODD, RUIDO_LINES, COMPETITIONS, SPORTS_KEYWORDS
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,13 @@ def clean_caption(raw: str) -> str:
 
 def extract_stake_list(text: str) -> List[float]:
     """
-    Extrai todas ocorrências de stake na legenda, ex.: ["1.50%", "0.50%", ...]
+    Extrai todas ocorrências de stake na legenda, ex.: "1.50%", "0.50u", etc.
+    Retorna lista de floats em porcentagem/unidades.
     """
     if not text:
         return []
     matches = PATTERN_STAKE.findall(text)
-    stakes = []
+    stakes: List[float] = []
     for m in matches:
         num = m.replace(',', '.')
         try:
@@ -57,12 +58,12 @@ def extract_stake(text: str) -> Optional[float]:
 
 def extract_odd_list(text: str) -> List[float]:
     """
-    Extrai todas ocorrências de odd na legenda/texto.
+    Extrai todas ocorrências de odd na legenda/texto. Usa PATTERN_ODD, que captura "Odd 2.5", "🏷2.5", etc.
     """
     if not text:
         return []
     matches = PATTERN_ODD.findall(text)
-    odds = []
+    odds: List[float] = []
     for m in matches:
         num = m.replace(',', '.')
         try:
@@ -96,10 +97,15 @@ def extract_limit(text: str) -> Optional[float]:
             return None
     return None
 
-def parse_market(mercado_raw: str) -> (Optional[str], Optional[str]):
+def parse_market(mercado_raw: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse simplificado de mercado_raw.
     Retorna (bet_type, selection).
+    Exemplos:
+      - "Over 2.5 gols" → ("over", "2.5")
+      - "Under 1.5" → ("under", "1.5")
+      - "Time A ganha" ou "Ganha Time A" → ("win", "Time A")
+      - Outros tipos, adaptáveis
     """
     if not mercado_raw:
         return None, None
@@ -114,7 +120,16 @@ def parse_market(mercado_raw: str) -> (Optional[str], Optional[str]):
         nums = re.findall(r'(\d+[.,]?\d*)', s)
         if nums:
             return "under", nums[0].replace(',', '.')
-    # Outras regras podem ser adicionadas
+    # Win: "Time A ganha" ou "ganha Time A"
+    m1 = re.search(r'(.+?)\s+(ganha|vence)', s, flags=re.IGNORECASE)
+    if m1:
+        sel = m1.group(1).strip()
+        return "win", sel
+    m2 = re.search(r'(ganha|vence)\s+(.+)', s, flags=re.IGNORECASE)
+    if m2:
+        sel = m2.group(2).strip()
+        return "win", sel
+    # Empate ou outras regras podem ser implementadas conforme necessidade
     return None, None
 
 def detect_competition(text: str) -> Optional[str]:
@@ -138,7 +153,6 @@ def detect_sport(text: str) -> Optional[str]:
     tlower = text.lower()
     for kw in SPORTS_KEYWORDS:
         if kw.lower() in tlower:
-            # Retornar com primeira letra maiúscula
             return kw.title()
     return None
 

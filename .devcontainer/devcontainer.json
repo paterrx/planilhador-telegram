@@ -2,7 +2,7 @@
   "name": "Planilhador Telegram",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": "."
+    "context": ".."
   },
   "customizations": {
     "vscode": {
@@ -12,11 +12,9 @@
       ]
     }
   },
-  // Instala dependências Python e grava credenciais após criar container
   "postCreateCommand": "python3 -m pip install --upgrade pip && pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
   "remoteUser": "vscode",
   "containerEnv": {
-    // Ajuste conforme onde o tessdata está dentro do container
     "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/4.00/"
   }
 }

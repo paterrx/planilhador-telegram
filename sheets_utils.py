@@ -7,19 +7,15 @@ from config import SERVICE_ACCOUNT_FILE, SPREADSHEET_ID, NEW_TAB
 
 logger = logging.getLogger(__name__)
 
-# sheets_utils.py
-
+# Ajuste do HEADER para refletir colunas exatas. Incluímos 'raw_mensagem_identificada' conforme uso.
 HEADER = [
     "bet_key", "duplicate", "data_hora", "group_id", "group_name",
-    "raw_mensagem_identificada",
-    "raw_time_casa", "raw_time_fora",
+    "raw_mensagem_identificada", "raw_time_casa", "raw_time_fora",
     "time_casa", "time_fora",
     "mercado_raw", "market_summary", "odd", "stake_pct",
     "actual_units", "scale", "unit_value", "amount_real", "placed",
     "selection", "bet_type", "competition", "bookmaker", "sport"
 ]
-
-
 
 def init_sheet():
     # Carrega credenciais
@@ -47,21 +43,19 @@ def init_sheet():
             sheet = ss.worksheet(NEW_TAB)
             logger.info(f"Usando aba existente '{NEW_TAB}'")
         else:
-            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=len(HEADER))
+            sheet = ss.add_worksheet(title=NEW_TAB, rows=2000, cols=30)
             logger.info(f"Aba '{NEW_TAB}' criada")
     except Exception as e:
         logger.error("Falha ao selecionar/criar aba", exc_info=e)
         raise
 
-    # Inserir cabeçalho se necessário
     try:
         existing = sheet.row_values(1)
     except Exception:
         existing = []
+    # Compare exatamente; se diferente, insere cabeçalho
     if existing != HEADER:
         try:
-            # Insere no topo: deleta linhas extras antes, se necessário?
-            # Aqui assumimos que se já existir algo diferente, inserimos cabeçalho na linha 1.
             sheet.insert_row(HEADER, index=1)
             logger.info("Cabeçalho inserido na planilha")
         except Exception as e:
