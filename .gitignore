@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.env
+
+# credenciais e sessões
+service_account.json
+session.session*
+seen.json
+mapping.json
+
+# pasta de downloads temporários
+downloads/
+
+# virtualenv
+venv/

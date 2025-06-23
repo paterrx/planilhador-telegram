@@ -1,0 +1,7 @@
+telethon>=1.24.0
+pillow
+pytesseract
+gspread
+google-auth
+rapidfuzz
+python-dotenv       # opcional, se quiser ler .env
