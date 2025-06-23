@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *.sqlite3
-*.env
+.env
 
 # credenciais e sessões
 service_account.json

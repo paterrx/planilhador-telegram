@@ -1,11 +1,12 @@
 # config.py
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
-import json
 import logging
 
-# Configure logging de forma global
-# Você pode ajustar level para DEBUG quando quiser ver logs detalhados
+# Logging global
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -13,81 +14,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Telethon API ───────────────────────────────────────────
-API_ID = int(os.getenv("TG_API_ID", "23767719"))
-API_HASH = os.getenv("TG_API_HASH", "COLOQUE_SEU_API_HASH_AQUI")
+# ─── Telegram API ───────────────────────────────────────────
+try:
+    API_ID = int(os.getenv("TG_API_ID", "0"))
+except:
+    API_ID = 0
+API_HASH = os.getenv("TG_API_HASH", "")
+if not API_ID or not API_HASH:
+    logger.warning("TG_API_ID ou TG_API_HASH não definidos ou inválidos")
 
 # ─── Banca e escalas ────────────────────────────────────────
-# Total da banca em reais
-BANK_TOTAL = float(os.getenv("BANK_TOTAL", "4000.0"))
+try:
+    BANK_TOTAL = float(os.getenv("BANK_TOTAL", "4000"))
+except:
+    BANK_TOTAL = 4000.0
 
-# UNIT_SCALES: mapeia group_id (int) → scale (int)
-# Ajuste conforme os IDs que você monitora e a escala de cada grupo.
-# Se preferir, mova esse mapeamento para um arquivo JSON e carregue aqui.
+# UNIT_SCALES: mapeia group_id (int) → escala (int)
 UNIT_SCALES = {
-    2625305937: 150,   # Arrudex → scale 150
-    2468014896: 100,   # Psicopatas → 100
-    2445658326: 100,   # TP Especiais → 100
-    2336623429: 100,   # Casebre → 100
-    2313268503: 100,   # Pei → 100
-    2516014749: 100,   # Feel Tips → 100
-    2546110827: 150,   # LuCa Props → 150
-    2455542600: 100,   # Peixe Esperto → 100
-    # Adicione ou ajuste conforme seus grupos...
+    # Exemplo: ajuste conforme seus grupos
+    2625305937: 150,   # Arrudex
+    2468014496: 100,   # Psicopatas
+    2445658326: 100,   # TP Especiais
+    2336623429: 100,   # Casebre
+    2313268503: 100,   # Pei
+    2516014749: 100,   # Feel Tips
+    2546110827: 150,   # LuCa Props
+    2455542600: 100,   # Peixe Esperto
+    # Adicione ou ajuste conforme seus grupos monitorados
 }
 DEFAULT_SCALE = int(os.getenv("DEFAULT_SCALE", "100"))
-
-# MONITORADOS: lista de IDs de grupos a monitorar
 MONITORADOS = list(UNIT_SCALES.keys())
 logger.info(f"Grupos monitorados: {MONITORADOS}")
 
-# ─── Google Sheets ──────────────────────────────────────────
-SPREADSHEET_ID = os.getenv(
-    "SPREADSHEET_ID",
-    "1zmv8q_XhIeRSXtM4SPu7uXyOU7bfKwt1_I2_oncafCc"
-)
+# ─── Google Sheets ─────────────────────────────────────────
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
-# Aba nova que o bot criará se não existir
+# Nome da aba que o bot criará ou usará
 NEW_TAB = os.getenv("NEW_TAB_NAME", "APOSTAS_BOT")
 
 # ─── OCR / Tesseract ────────────────────────────────────────
-# Se precisar configurar o caminho do executável tesseract no Windows, 
-# defina TESSERACT_CMD no .env ou edite aqui:
-TESSERACT_CMD = os.getenv(
-    "TESSERACT_CMD",
-    r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-)
-# Diretório tessdata, se necessário:
-TESSDATA_PREFIX = os.getenv(
-    "TESSDATA_PREFIX",
-    r"C:\Program Files\Tesseract-OCR\tessdata"
-)
-
-# Atribui ao pytesseract em runtime:
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "tesseract")
+TESSDATA_PREFIX = os.getenv("TESSDATA_PREFIX", "")
 try:
     import pytesseract
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-    os.environ.setdefault('TESSDATA_PREFIX', TESSDATA_PREFIX)
+    if TESSDATA_PREFIX:
+        os.environ.setdefault('TESSDATA_PREFIX', TESSDATA_PREFIX)
     logger.debug(f"Tesseract configurado: cmd={TESSERACT_CMD}, tessdata_prefix={TESSDATA_PREFIX}")
 except ImportError:
-    logger.warning("pytesseract não está instalado; OCR falhará se usado.")
+    logger.warning("pytesseract não instalado; OCR falhará")
 
-# ─── Heurísticas (listas de competições, ruídos, bookmakers) ──
-# Caso queira expor COMPETITIONS via config ou JSON externo, pode fazer aqui.
+# ─── Heurísticas ───────────────────────────────────────────
+# Lista de competições para detectar
 COMPETITIONS = [
     "NBA", "Premier League", "Copa do Mundo", "Champions", "UEFA",
     "La Liga", "Serie A", "Bundesliga", "MLS", "Copa Libertadores",
-    # adicione mais se quiser
 ]
 
-# Lista de prefixos ou padrões de linhas a ignorar no OCR:
+# Linhas de ruído para OCR
+import re
 RUIDO_LINES = [
     r'^Aposta simples', r'^Imperdíveis', r'^Valor da aposta', r'^OOS\b',
     r'^fe\)', r'^Q \d+:\d+', r'^Hora de decidir', r'^📌', r'^🏠', r'^🆚',
-    # adicione outros prefixos que identifique como ruído
 ]
 
-# BOOKMAKER_MAP: reconhece substrings de hostname ou palavras-chave na legenda
+# Mapeamento de bookmaker por palavra-chave
 BOOKMAKER_MAP = {
     "bet365": "Bet365",
     "betano": "Betano",
@@ -157,8 +148,7 @@ BOOKMAKER_MAP = {
     "lotogreen": "LotoGreen"
 }
 
-# Regexes para stake/odd/limit em legenda:
-import re
+# Regex para stake, odd, limit
 PATTERN_STAKE = re.compile(r'([\d]+(?:[.,]\d+)?)\s*(?:%|u)', re.IGNORECASE)
 PATTERN_LIMIT = re.compile(r'Limite.*?R\$\s*([\d\.,]+)', re.IGNORECASE)
 PATTERN_ODD   = re.compile(r'(?:Odd|🏷|odd justa)\s*([\d\.,]+)', re.IGNORECASE)

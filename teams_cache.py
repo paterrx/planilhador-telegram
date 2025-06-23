@@ -27,18 +27,12 @@ def save_cache(data):
 
 def get_games_for_today():
     """
-    Retorna lista de tuplas (home, away) para jogos do dia. 
-    Implemente chamada a API esportiva ou mantenha manualmente.
+    Retorna lista de tuplas (home, away) para jogos do dia.
+    Pode implementar chamada a API esportiva ou manter manualmente.
     """
     data = load_cache()
     today = date.today().isoformat()
     if data.get("date") == today:
         return data.get("games", [])
-    # Aqui você poderia chamar API e popular:
-    # Exemplo:
-    # response = requests.get("URL_DA_API", params={...})
-    # jogos = parse_response(response)
-    # new_data = {"date": today, "games": jogos}
-    # save_cache(new_data)
-    # return jogos
+    # Se quiser implementar: chamada a API e depois save_cache
     return []

@@ -88,6 +88,7 @@ def normalize_bookmaker_from_url_or_text(text: str):
 def parse_market(mercado_raw: str):
     text = mercado_raw or ""
     text_low = text.lower()
+
     m_ou = re.search(r'\b(over|mais de|under|menos de)\s*([\d]+[.,]\d+)', text_low)
     if m_ou:
         palavra = m_ou.group(1)

@@ -1,26 +1,48 @@
 # Planilhador Telegram de Apostas
 
-## Visão geral
-Este bot monitora grupos de Telegram de dicas de apostas, extrai informações (times, tipo de aposta, odd, stake%, etc.) de mensagens de texto ou imagens via OCR, e grava tudo em uma Google Sheet.
+Este projeto monitora grupos de Telegram que enviam dicas/apostas, extrai informações (times, mercado, odd, stake%, etc.) de mensagens de texto ou imagens via OCR, e grava em uma Google Sheet.
 
-## Estrutura
-- `bot.py`: entrypoint
-- `telegram_bot.py`: orquestra Telethon e handlers
-- `config.py`: configurações centrais
-- `ocr_utils.py`: funções de OCR e extração de texto de imagens
-- `parse_utils.py`: parsing de texto em campos estruturados
-- `mapping_utils.py`: mapeamento canônico com fuzzy matching
-- `dedup_utils.py`: controle de duplicados (seen.json)
-- `sheets_utils.py`: integração Google Sheets
-- `teams_cache.py`: (opcional) lista de jogos para fuzzy matching
-- `requirements.txt`: dependências
-- `service_account.json`: credenciais Google (não versionar)
-- `seen.json`, `mapping.json`: arquivos gerados durante execução
-- `downloads/`: pasta temporária para mídias baixadas
+## Estrutura do projeto
+
+- `.devcontainer/`: configuração para GitHub Codespaces ou VSCode Dev Container
+  - `devcontainer.json`
+  - `Dockerfile`
+- `bot.py`: entrypoint que chama `telegram_bot.main()`
+- `telegram_bot.py`: orquestra Telethon e handlers de mensagem
+- `config.py`: variáveis de configuração (lê env vars)
+- `ocr_utils.py`: funções relacionadas a OCR e extração de linhas
+- `parse_utils.py`: parsing de texto (stake, odd, limit, mercado, bookmaker, competition, summary)
+- `mapping_utils.py`: mapeamento canônico de nomes com fuzzy matching
+- `dedup_utils.py`: carregamento/salvamento de seen.json e geração de bet_key
+- `sheets_utils.py`: inicialização e gravação em Google Sheets
+- `teams_cache.py`: (opcional) funções para carregar lista de times/jogos para fuzzy matching
+- `requirements.txt`: dependências do projeto
+- `README.md`: instruções de configuração e uso
+- Não versionar: `service_account.json`, `.env`, `session.session*`, `seen.json`, `mapping.json`, `downloads/`
 
 ## Pré-requisitos
-1. Python 3.9+ e virtualenv:
+
+1. **Python 3.9+**  
+2. **Tesseract OCR** (opcional, para OCR): no Dev Container já instalado; localmente, instale e configure `TESSERACT_CMD` se necessário.  
+3. **Credenciais Telegram**:
+   - Obtenha `API_ID` e `API_HASH` em https://my.telegram.org.
+   - Defina como variáveis de ambiente `TG_API_ID` e `TG_API_HASH` ou em `.env`.  
+4. **Google Sheets API**:
+   - Crie Service Account com permissão Editor na planilha.
+   - Habilite Sheets API no projeto Google Cloud.
+   - Baixe JSON e forneça ao bot via `service_account.json` ou Secret.  
+   - Defina `SPREADSHEET_ID` (ID da planilha) em variáveis de ambiente.  
+5. **Variáveis de ambiente**:
+   - Crie `.env` (não commitado) com:
+     ```
+     TG_API_ID=...
+     TG_API_HASH=...
+     SPREADSHEET_ID=...
+     SERVICE_ACCOUNT_FILE=service_account.json
+     BANK_TOTAL=4000
+     LOG_LEVEL=DEBUG
+     TESSERACT_CMD=tesseract
+     ```
+6. **Dependências**:
    ```bash
-   python -m venv venv
-   source venv/bin/activate    # Linux/macOS
-   .\venv\Scripts\activate.bat # Windows
+   pip install -r requirements.txt

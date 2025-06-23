@@ -17,6 +17,7 @@ from sheets_utils import init_sheet, append_row
 logger = logging.getLogger(__name__)
 
 async def main():
+    # Solicita número
     phone = input("📱 Número (+55...): ").strip()
     client = TelegramClient('session', API_ID, API_HASH)
     await client.start(phone=phone)
@@ -29,6 +30,7 @@ async def main():
     logger.info(f"Conectado como @{me.username} (ID {me.id})")
     logger.info(f"Monitorando grupos: {MONITORADOS}")
 
+    # Carrega seen e inicializa Google Sheets
     seen = load_seen()
     try:
         sheet = init_sheet()
@@ -41,6 +43,8 @@ async def main():
         try:
             raw = ev.raw_text or ""
             chat_id = ev.chat_id
+
+            # 1) OCR se houver mídia
             ocr_text = ""
             if ev.message.media:
                 ocr_text = await perform_ocr_on_media(ev.message)
@@ -49,10 +53,14 @@ async def main():
                 lines = limpa_linhas_ocr(ocr_text)
                 logger.debug(f"[OCR] Linhas limpas: {lines}")
 
+            # 2) Limpa legenda
             clean = clean_caption(raw)
             logger.debug(f"[Caption] {clean}")
 
+            # 3) Extrai bookmaker
             bookmaker = normalize_bookmaker_from_url_or_text(clean)
+
+            # 4) Extrai stake_pct; se não houver, ignora
             stake_pct = extract_stake(clean)
             if stake_pct is None:
                 logger.debug("Sem stake_pct na legenda; ignora mensagem.")
@@ -61,8 +69,9 @@ async def main():
             limit = extract_limit(clean)
             logger.debug(f"Stake_pct={stake_pct}, odd_caption={odd_caption}, limit={limit}")
 
+            # 5) Extrai apostas possíveis via OCR ou legenda
             bets_to_record = []
-            # Tenta OCR
+            # Via OCR
             if lines:
                 home, away = extrai_times_de_linhas(lines)
                 if home and away:
@@ -118,14 +127,17 @@ async def main():
                     logger.debug("Não extraiu times da legenda; ignora.")
                     return
 
-            # Processa cada aposta extraída
+            # 6) Para cada aposta, gera bet_key e envia à planilha
             for entry in bets_to_record:
                 home = entry['time_casa']
                 away = entry['time_fora']
                 mercado_raw = entry.get('mercado')
                 odd_img = entry.get('odd_img')
 
+                # Determina odd final
                 odd_val = odd_img or odd_caption
+
+                # Dedup
                 bkey = generate_bet_key(home, away, mercado_raw, odd_val)
                 is_dup = bkey in seen
                 if not is_dup:
@@ -134,6 +146,7 @@ async def main():
                     logger.debug(f"Novo bet_key salvo: {bkey}")
                 logger.debug(f"bet_key={bkey}, duplicate={is_dup}")
 
+                # Calcula unidades
                 scale = UNIT_SCALES.get(chat_id, DEFAULT_SCALE)
                 unit_value = round(BANK_TOTAL/scale, 2)
                 rec_amount = unit_value * stake_pct
@@ -145,16 +158,19 @@ async def main():
                     actual_units = stake_pct
                 logger.debug(f"unit_value={unit_value}, rec_amount={rec_amount}, actual_units={actual_units}, actual_amount={actual_amount}")
 
+                # Canonical names
                 canon_home = get_canonical(home)
                 canon_away = get_canonical(away)
                 logger.debug(f"Canonical: {home}->{canon_home}, {away}->{canon_away}")
 
+                # Parse mercado etc.
                 bet_type, selection = parse_market(mercado_raw or "")
                 competition = detect_competition(clean + " " + (mercado_raw or ""))
                 market_summary = summarize_market(mercado_raw or "")
                 logger.debug(f"parse_market -> bet_type={bet_type}, selection={selection}")
                 logger.debug(f"competition={competition}, market_summary={market_summary}")
 
+                # Nome do grupo
                 try:
                     chat = await ev.get_chat()
                     group_name = getattr(chat, 'title', str(chat_id))

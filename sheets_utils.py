@@ -15,6 +15,7 @@ HEADER = [
 ]
 
 def init_sheet():
+    # Carrega credenciais
     try:
         creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=['https://www.googleapis.com/auth/spreadsheets'])
     except Exception as e:
@@ -45,9 +46,10 @@ def init_sheet():
         logger.error("Falha ao selecionar/criar aba", exc_info=e)
         raise
 
+    # Inserir cabeçalho se necessário
     try:
         existing = sheet.row_values(1)
-    except Exception as e:
+    except Exception:
         existing = []
     if existing != HEADER:
         try:

@@ -4,4 +4,4 @@ pytesseract
 gspread
 google-auth
 rapidfuzz
-python-dotenv       # opcional, se quiser ler .env
+python-dotenv
