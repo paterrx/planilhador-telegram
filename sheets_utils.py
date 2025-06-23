@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 HEADER = [
     "bet_key", "duplicate", "data_hora", "group_id", "group_name",
-    "time_casa", "time_fora", "mercado_raw", "market_summary", "odd", "stake_pct",
+    "raw_time_casa", "raw_time_fora",
+    "time_casa", "time_fora",
+    "mercado_raw", "market_summary", "odd", "stake_pct",
     "actual_units", "scale", "unit_value", "amount_real", "placed",
     "selection", "bet_type", "competition", "bookmaker"
 ]

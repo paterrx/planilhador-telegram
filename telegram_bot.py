@@ -13,6 +13,7 @@ from parse_utils import clean_caption, extract_stake, extract_odd, extract_limit
 from mapping_utils import get_canonical
 from dedup_utils import load_seen, save_seen, generate_bet_key
 from sheets_utils import init_sheet, append_row
+from analysis_utils import HistoricalAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ async def main():
     seen = load_seen()
     try:
         sheet = init_sheet()
+        # Carrega histórico para aprendizado
+        historical = HistoricalAnalyzer(sheet)
     except Exception:
         logger.error("Erro ao inicializar Google Sheets. Saindo.")
         return
@@ -184,8 +187,10 @@ async def main():
                     ts,
                     chat_id,
                     group_name,
-                    canon_home,
-                    canon_away,
+                    home,        # raw_time_casa
+                    away,        # raw_time_fora
+                    canon_home,  # time_casa
+                    canon_away,  # time_fora
                     mercado_raw or '',
                     market_summary or '',
                     odd_val or '',
@@ -194,7 +199,7 @@ async def main():
                     scale,
                     unit_value,
                     round(actual_amount, 2),
-                    '',  # placed
+                    '',
                     selection or '',
                     bet_type or '',
                     competition or '',
