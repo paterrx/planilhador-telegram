@@ -2,7 +2,7 @@
   "name": "Planilhador Telegram",
   "build": {
     "dockerfile": "Dockerfile",
-    "context": ".."
+    "context": "."
   },
   "customizations": {
     "vscode": {

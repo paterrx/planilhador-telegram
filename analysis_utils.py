@@ -4,7 +4,6 @@ import logging
 import threading
 from typing import Optional, Dict, List
 from collections import Counter
-import difflib
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,7 @@ class HistoricalAnalyzer:
                 return
             header = all_values[0]
             # Espera colunas conforme sheets_utils.HEADER
+            # Encontrar índices pelas strings exatas:
             try:
                 idx_raw_home = header.index("raw_time_casa")
                 idx_raw_away = header.index("raw_time_fora")
@@ -53,6 +53,7 @@ class HistoricalAnalyzer:
                 return
 
             for row in all_values[1:]:
+                # Proteção: verificar comprimento suficiente
                 if len(row) <= max(idx_raw_home, idx_raw_away, idx_canon_home, idx_canon_away, idx_raw_market, idx_summary):
                     continue
                 raw_home = row[idx_raw_home].strip()
@@ -97,49 +98,27 @@ class HistoricalAnalyzer:
 
     def suggest_canonical(self, raw_name: str) -> Optional[str]:
         """
-        Sugere nome canônico para raw_name se já conhecido no histórico ou fuzzy match de raw_name próximo.
-        Caso contrário, None.
+        Sugere nome canônico para raw_name se já conhecido no histórico; caso contrário, None.
         """
         if not raw_name:
             return None
         with self._lock:
-            # Exato
-            if raw_name in self._canonical_map:
-                return self._canonical_map[raw_name]
-            # Tentar fuzzy match entre raw_names já vistos
-            keys = list(self._canonical_map.keys())
-            # Usar threshold razoável, ex. 0.75
-            matches = difflib.get_close_matches(raw_name, keys, n=1, cutoff=0.75)
-            if matches:
-                candidate = matches[0]
-                logger.debug(f"HistoricalAnalyzer: fuzzy match '{raw_name}' → '{candidate}' -> '{self._canonical_map[candidate]}'")
-                return self._canonical_map[candidate]
-        return None
+            return self._canonical_map.get(raw_name)
 
     def suggest_summary(self, mercado_raw: str) -> Optional[str]:
         """
-        Sugere resumo de mercado para mercado_raw se já conhecido no histórico (exato ou fuzzy).
-        Caso contrário, None.
+        Sugere resumo de mercado para mercado_raw se já conhecido no histórico; caso contrário, None.
         """
         if not mercado_raw:
             return None
         with self._lock:
-            if mercado_raw in self._summary_map:
-                return self._summary_map[mercado_raw]
-            # fuzzy entre chaves de mercado
-            keys = list(self._summary_map.keys())
-            matches = difflib.get_close_matches(mercado_raw, keys, n=1, cutoff=0.75)
-            if matches:
-                candidate = matches[0]
-                logger.debug(f"HistoricalAnalyzer: fuzzy summary '{mercado_raw}' → '{candidate}' -> '{self._summary_map[candidate]}'")
-                return self._summary_map[candidate]
-        return None
+            return self._summary_map.get(mercado_raw)
 
     def suggest_opponent(self, raw_name: str) -> Optional[str]:
         """
         Dada uma raw_name (ex.: 'Palmeiras'), tenta obter canonical ou normalizar, e buscar
         em histórico adversário frequente:
-        - Se houver um adversário mais frequente, retorna-o.
+        - Se houver apenas um adversário no histórico ou um claro mais frequente, retorna-o.
         - Caso contrário, None.
         """
         if not raw_name:
@@ -151,20 +130,19 @@ class HistoricalAnalyzer:
                 most_common = counter.most_common(1)
                 if most_common:
                     opponent, count = most_common[0]
-                    logger.debug(f"HistoricalAnalyzer: suggest_opponent para '{raw_name}' → '{opponent}' (count={count})")
                     return opponent
         return None
 
     def update(self, raw_home: str, raw_away: str, mercado_raw: str, summary: str) -> None:
         """
         Atualiza o histórico em memória com nova entrada após planilhar:
-        - Adiciona mapeamento de mercado_summary.
-        - Não atualiza raw<->canon automaticamente (usar /reload_history após edição manual).
+        Apenas mapeamentos de mercado_summary; nomes e opponents aguardam reload manual (/reload_history).
         """
         if mercado_raw and summary:
             with self._lock:
-                if mercado_raw not in self._summary_map:
-                    self._summary_map[mercado_raw] = summary
+                if raw_market := mercado_raw.strip():
+                    if raw_market not in self._summary_map:
+                        self._summary_map[raw_market] = summary
 
     def reload(self) -> None:
         """

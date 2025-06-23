@@ -1,9 +1,10 @@
-telethon>=1.0.0
-pillow
+telethon
 pytesseract
+Pillow
 gspread
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-rapidfuzz
+oauth2client
 python-dotenv
+rapidfuzz  # se usar fuzzy matching
