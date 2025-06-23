@@ -1,7 +1,8 @@
 {
   "name": "Planilhador Telegram",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "context": ".."
   },
   "customizations": {
     "vscode": {
@@ -11,6 +12,6 @@
       ]
     }
   },
-  "postCreateCommand": "pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON\" ]; then echo \"$SERVICE_ACCOUNT_JSON\" > service_account.json; fi",
+  "postCreateCommand": "if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
   "remoteUser": "vscode"
 }

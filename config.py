@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "")
 import logging
 
 # Logging global
