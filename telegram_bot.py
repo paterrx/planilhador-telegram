@@ -4,8 +4,9 @@ import os
 import asyncio
 import logging
 from datetime import timezone
+import base64
 
-# Reduz logs verbosos do Telethon em nível WARNING
+# Reduz logs muito verbosos do Telethon
 logging.getLogger("telethon").setLevel(logging.WARNING)
 logging.getLogger("telethon.network").setLevel(logging.WARNING)
 
@@ -32,7 +33,38 @@ from analysis_utils import HistoricalAnalyzer
 
 logger = logging.getLogger(__name__)
 
+def ensure_service_account_file():
+    """
+    Decodifica SERVICE_ACCOUNT_JSON_B64 e escreve em disco no caminho SERVICE_ACCOUNT_FILE.
+    Se SERVICE_ACCOUNT_JSON_B64 não existir, verifica se SERVICE_ACCOUNT_FILE já existe localmente.
+    """
+    sa_b64 = os.getenv("SERVICE_ACCOUNT_JSON_B64")
+    sa_file = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
+    if sa_b64:
+        try:
+            data = base64.b64decode(sa_b64)
+        except Exception as e:
+            logger.error("Falha ao decodificar SERVICE_ACCOUNT_JSON_B64", exc_info=e)
+            raise
+        try:
+            with open(sa_file, "wb") as f:
+                f.write(data)
+            logger.info(f"Service Account JSON escrito em '{sa_file}' a partir de SERVICE_ACCOUNT_JSON_B64")
+        except Exception as e:
+            logger.error("Falha ao escrever arquivo de credenciais Service Account", exc_info=e)
+            raise
+    else:
+        # Se não há Base64, espera que o arquivo já exista localmente
+        if not os.path.exists(sa_file):
+            logger.error(f"Service account file '{sa_file}' não encontrado e SERVICE_ACCOUNT_JSON_B64 não definido.")
+            raise FileNotFoundError(f"Service account file '{sa_file}' não existe e nenhuma credencial em SERVICE_ACCOUNT_JSON_B64.")
+        else:
+            logger.info(f"Usando service account existente em '{sa_file}'")
+
 async def main():
+    # 1) Gera/garante service_account.json antes de init_sheet
+    ensure_service_account_file()
+
     phone = input("📱 Número (+55...): ").strip()
     client = TelegramClient('session', API_ID, API_HASH)
     await client.start(phone=phone)
@@ -45,7 +77,6 @@ async def main():
     logger.info(f"Conectado como @{me.username} (ID {me.id})")
     logger.info(f"Monitorando grupos: {MONITORADOS}")
 
-    # Carrega seen e inicializa Google Sheets
     seen = load_seen()
     try:
         sheet = init_sheet()
@@ -54,7 +85,6 @@ async def main():
         logger.error("Erro ao inicializar Google Sheets. Saindo.")
         return
 
-    # Comando para recarregar histórico manualmente:
     @client.on(events.NewMessage(pattern=r'/reload_history'))
     async def reload_history(ev):
         try:
@@ -86,7 +116,7 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # Monta raw_message_identified: texto limpo + OCR bruto (opcional)
+            # RAW_MENSAGEM_IDENTIFICADA
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
@@ -108,7 +138,6 @@ async def main():
 
             # 5) Extrai possíveis apostas via OCR ou legenda
             bets_to_record = []
-            # Via OCR
             if lines:
                 try:
                     home, away = extrai_times_de_linhas(lines)
@@ -146,7 +175,6 @@ async def main():
                         })
                 else:
                     logger.debug("OCR não extraiu times confiáveis.")
-            # Fallback legenda
             if not bets_to_record:
                 try:
                     home2, away2 = extrai_times_de_linhas([clean])
@@ -186,7 +214,7 @@ async def main():
             num_odds_caption = len(odd_caption_list)
             logger.debug(f"num_markets={num_markets}, num_stakes={num_stakes}, num_odds_caption={num_odds_caption}")
 
-            # 7) Detecta esporte a partir do raw_message_identified
+            # 7) Detecta esporte
             sport = detect_sport(raw_msg_identified)
             logger.debug(f"Esporte detectado: {sport}")
 
@@ -197,12 +225,12 @@ async def main():
                 mercado_raw = entry.get('mercado')
                 odd_img = entry.get('odd_img')
 
-                # Determina stake_pct para este índice (escada)
+                # stake_pct por índice
                 if num_stakes >= num_markets:
                     stake_pct = stake_list[idx]
                 else:
                     stake_pct = stake_list[0]
-                # Determina odd final
+                # odd final
                 if odd_img is not None:
                     odd_val = odd_img
                 else:
@@ -221,7 +249,7 @@ async def main():
                     logger.debug(f"Novo bet_key salvo: {bkey}")
                 logger.debug(f"bet_key={bkey}, duplicate={is_dup}")
 
-                # Calcula unidades
+                # Unidades
                 scale = UNIT_SCALES.get(chat_id, DEFAULT_SCALE)
                 unit_value = round(BANK_TOTAL / scale, 2)
                 rec_amount = unit_value * stake_pct
@@ -233,7 +261,7 @@ async def main():
                     actual_units = stake_pct
                 logger.debug(f"unit_value={unit_value}, rec_amount={rec_amount}, actual_units={actual_units}, actual_amount={actual_amount}")
 
-                # Canonicalização via histórico
+                # Canonicalização com histórico
                 suggest_home = historical.suggest_canonical(raw_home)
                 suggest_away = historical.suggest_canonical(raw_away)
                 canon_home = suggest_home if suggest_home else get_canonical(raw_home)
@@ -245,10 +273,7 @@ async def main():
                 competition = detect_competition(clean + " " + (mercado_raw or ""))
                 summary_parse = "" if not mercado_raw else summarize_fallback(mercado_raw)
                 summary_hist = historical.suggest_summary(mercado_raw or "")
-                if summary_hist:
-                    market_summary = summary_hist
-                else:
-                    market_summary = summary_parse or ""
+                market_summary = summary_hist if summary_hist else (summary_parse or "")
                 logger.debug(f"market_summary escolhido: {market_summary}")
 
                 # Nome do grupo
@@ -292,7 +317,7 @@ async def main():
                 except Exception as e:
                     logger.error("Erro ao append_row", exc_info=e)
 
-                # Opcional: atualizar histórico imediatamente; aqui deixamos sem ação ou chamamos historical.update
+                # Atualiza histórico
                 historical.update(raw_home, raw_away, mercado_raw or "", market_summary or "")
 
         except Exception:
