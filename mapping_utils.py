@@ -21,8 +21,6 @@ def get_canonical(raw_name: str) -> str:
     - Remove emojis/caracteres não ASCII
     - Mapeamentos manuais (adicione conforme frequência)
     """
-    if not raw_name:
-        return ""
     s = raw_name.strip()
     # Remove caracteres não ASCII (ex.: emojis) de forma simples
     s = re.sub(r'[^\x00-\x7F]+', '', s)
@@ -39,7 +37,7 @@ def get_canonical(raw_name: str) -> str:
         return mapping[s]
     # Opcional: normalizar acentuação
     s_norm = normalize_text(s)
-    # Você pode aplicar title case ou outra normalização leve
+    # Pode aplicar title case ou outra normalização leve
     return s_norm
 
 def normalize_bookmaker_from_url_or_text(text: str) -> str | None:
@@ -47,8 +45,6 @@ def normalize_bookmaker_from_url_or_text(text: str) -> str | None:
     Detecta bookmaker a partir de URL ou texto livre, usando BOOKMAKER_MAP.
     Retorna valor mapeado (ex.: "Bet365") ou None.
     """
-    if not text:
-        return None
     # Primeiro, extrai host de possíveis URLs
     urls = re.findall(r'https?://([^/\s]+)', text)
     for host in urls:

@@ -3,10 +3,10 @@
 import os
 import asyncio
 import logging
-from datetime import timezone
 import base64
+from datetime import timezone
 
-# Reduz logs muito verbosos do Telethon
+# reduzir logs verbosos do telethon
 logging.getLogger("telethon").setLevel(logging.WARNING)
 logging.getLogger("telethon.network").setLevel(logging.WARNING)
 
@@ -17,9 +17,10 @@ from config import API_ID, API_HASH, BANK_TOTAL, UNIT_SCALES, DEFAULT_SCALE, MON
 from ocr_utils import limpa_linhas_ocr, extrai_times_de_linhas, extrai_todas_opcoes_mercado, perform_ocr_on_media
 from parse_utils import (
     clean_caption,
+    extract_stake,
     extract_stake_list,
-    extract_odd_list,
     extract_odd,
+    extract_odd_list,
     extract_limit,
     parse_market,
     detect_competition,
@@ -62,9 +63,10 @@ def ensure_service_account_file():
             logger.info(f"Usando service account existente em '{sa_file}'")
 
 async def main():
-    # 1) Gera/garante service_account.json antes de init_sheet
+    # 0) Garante credenciais antes de init_sheet
     ensure_service_account_file()
 
+    # 1) Solicita número do Telegram
     phone = input("📱 Número (+55...): ").strip()
     client = TelegramClient('session', API_ID, API_HASH)
     await client.start(phone=phone)
@@ -77,6 +79,7 @@ async def main():
     logger.info(f"Conectado como @{me.username} (ID {me.id})")
     logger.info(f"Monitorando grupos: {MONITORADOS}")
 
+    # 2) Carrega seen e inicializa Google Sheets e histórico
     seen = load_seen()
     try:
         sheet = init_sheet()
@@ -116,17 +119,17 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # RAW_MENSAGEM_IDENTIFICADA
+            # 3) RAW_MENSAGEM_IDENTIFICADA
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
                 raw_msg_identified = clean
 
-            # 3) Extrai bookmaker
+            # 4) Extrai bookmaker
             bookmaker = normalize_bookmaker_from_url_or_text(clean)
             logger.debug(f"Bookmaker detectado: {bookmaker}")
 
-            # 4) Extrai lista de stakes e odds da legenda
+            # 5) Extrai stake(s) e odd(s) da legenda
             stake_list = extract_stake_list(clean)
             if not stake_list:
                 logger.debug("Sem stake_pct na legenda; ignora mensagem.")
@@ -136,7 +139,7 @@ async def main():
             limit = extract_limit(clean)
             logger.debug(f"Stake_list={stake_list}, odd_caption_list={odd_caption_list}, limit={limit}")
 
-            # 5) Extrai possíveis apostas via OCR ou legenda
+            # 6) Extrai possíveis apostas via OCR ou legenda
             bets_to_record = []
             if lines:
                 try:
@@ -208,24 +211,24 @@ async def main():
                     logger.debug("Não extraiu times da legenda; ignora.")
                     return
 
-            # 6) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
+            # 7) Lógica de casamento múltiplos mercados <-> múltiplos stakes (escada)
             num_markets = len(bets_to_record)
             num_stakes = len(stake_list)
             num_odds_caption = len(odd_caption_list)
             logger.debug(f"num_markets={num_markets}, num_stakes={num_stakes}, num_odds_caption={num_odds_caption}")
 
-            # 7) Detecta esporte
+            # 8) Detecta esporte
             sport = detect_sport(raw_msg_identified)
             logger.debug(f"Esporte detectado: {sport}")
 
-            # 8) Processa cada sub-aposta
+            # 9) Processa cada sub-aposta
             for idx, entry in enumerate(bets_to_record):
                 raw_home = entry['time_casa']
                 raw_away = entry['time_fora']
                 mercado_raw = entry.get('mercado')
                 odd_img = entry.get('odd_img')
 
-                # stake_pct por índice
+                # stake_pct por índice (escada)
                 if num_stakes >= num_markets:
                     stake_pct = stake_list[idx]
                 else:
