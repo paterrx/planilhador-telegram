@@ -16,10 +16,11 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-# Copia requirements primeiro
+# Copia requirements primeiro (contexto é a raiz do repo, onde requirements.txt está)
 COPY requirements.txt /workspace/requirements.txt
+
 RUN pip install --upgrade pip \
     && pip install -r /workspace/requirements.txt
 
-# Copia todo o projeto
+# Copia todo o projeto para dentro do container
 COPY . /workspace
