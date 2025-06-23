@@ -1,7 +1,7 @@
-# Dockerfile
+# Dockerfile para devcontainer
 FROM mcr.microsoft.com/devcontainers/python:3.9
 
-# Instala Tesseract e idiomas (pt e eng)
+# Instala Tesseract e línguas
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        tesseract-ocr \
@@ -15,8 +15,10 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
+# Copia e instala dependências Python
 COPY requirements.txt /workspace/requirements.txt
-RUN pip install --upgrade pip \
+RUN python3 -m pip install --upgrade pip \
     && pip install -r /workspace/requirements.txt
 
+# Copia todo o projeto
 COPY . /workspace

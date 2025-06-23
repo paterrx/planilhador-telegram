@@ -22,7 +22,6 @@ class HistoricalAnalyzer:
         self._summary_map: Dict[str, str] = {}       # raw_market -> summary
         self._opponents_map: Dict[str, Counter] = {} # canonical_team -> Counter(opponent_name)
         self._lock = threading.Lock()
-        # Carrega existente na inicialização
         self._load_existing()
 
     def _load_existing(self) -> None:
@@ -34,15 +33,11 @@ class HistoricalAnalyzer:
         - time_casa <-> time_fora em _opponents_map
         """
         try:
-            # Pega todos os valores; primeira linha é header
             all_values: List[List[str]] = self.sheet.get_all_values()
-            if not all_values or len(all_values) < 2:
-                # Nada além do header
-                logger.info("HistoricalAnalyzer: planilha vazia ou sem dados além do header.")
+            if not all_values:
                 return
             header = all_values[0]
-            # Espera colunas conforme sheets_utils.HEADER: 
-            # encontre índices pelas strings exatas:
+            # Espera colunas conforme sheets_utils.HEADER
             try:
                 idx_raw_home = header.index("raw_time_casa")
                 idx_raw_away = header.index("raw_time_fora")
@@ -56,13 +51,9 @@ class HistoricalAnalyzer:
                 )
                 return
 
-            # Itera sobre cada linha após o header
             for row in all_values[1:]:
-                # Proteção: verificar comprimento suficiente
-                max_idx = max(idx_raw_home, idx_raw_away, idx_canon_home, idx_canon_away, idx_raw_market, idx_summary)
-                if len(row) <= max_idx:
+                if len(row) <= max(idx_raw_home, idx_raw_away, idx_canon_home, idx_canon_away, idx_raw_market, idx_summary):
                     continue
-
                 raw_home = row[idx_raw_home].strip()
                 raw_away = row[idx_raw_away].strip()
                 canon_home = row[idx_canon_home].strip()
@@ -73,7 +64,6 @@ class HistoricalAnalyzer:
                 # canonical mapping
                 if raw_home and canon_home:
                     with self._lock:
-                        # só insere se não existir
                         if raw_home not in self._canonical_map:
                             self._canonical_map[raw_home] = canon_home
                 if raw_away and canon_away:
@@ -94,13 +84,12 @@ class HistoricalAnalyzer:
                             self._opponents_map[canon_home] = Counter()
                         if canon_away not in self._opponents_map:
                             self._opponents_map[canon_away] = Counter()
-                        # incrementa contagem de confrontos
                         self._opponents_map[canon_home][canon_away] += 1
                         self._opponents_map[canon_away][canon_home] += 1
 
             logger.info(
-                "HistoricalAnalyzer: carregado %d mapeamentos canônicos, %d resumos e %d times em histórico.",
-                len(self._canonical_map), len(self._summary_map), len(self._opponents_map)
+                f"HistoricalAnalyzer: carregado {len(self._canonical_map)} mapeamentos canônicos, "
+                f"{len(self._summary_map)} resumos e {len(self._opponents_map)} times em histórico."
             )
         except Exception as e:
             logger.error("HistoricalAnalyzer: falha ao carregar histórico existente", exc_info=e)
@@ -133,38 +122,34 @@ class HistoricalAnalyzer:
         if not raw_name:
             return None
         with self._lock:
-            # tenta canonical via raw_name, se não houver, usa raw_name como chave direta
             canonical = self._canonical_map.get(raw_name, raw_name)
             counter = self._opponents_map.get(canonical)
             if counter:
                 most_common = counter.most_common(1)
                 if most_common:
                     opponent, count = most_common[0]
-                    # Se desejar, pode exigir count mínimo, mas aqui retornamos o mais comum
                     return opponent
         return None
 
     def update(self, raw_home: str, raw_away: str, mercado_raw: str, summary: str) -> None:
         """
         Atualiza o histórico em memória com nova entrada após planilhar:
-        - Somente adiciona mapeamentos de mercado_summary quando surgir um raw_mercado novo.
-        - Para canonical_map / opponents_map, espera recarga via reload() após edição manual.
+        - Adiciona mapeamento de mercado_summary.
+        - Não atualiza automaticamente nomes; espera /reload_history após ajuste manual.
         """
         if mercado_raw and summary:
             with self._lock:
+                if raw_home is None or raw_away is None:
+                    return
                 if mercado_raw not in self._summary_map:
                     self._summary_map[mercado_raw] = summary
-                    logger.debug("HistoricalAnalyzer: novo summary adicionado para mercado_raw='%s'", mercado_raw)
-        # Não alteramos automaticamentecanonical_map ou opponents_map aqui,
-        # pois normalmente o usuário faz ajustes manuais na planilha e depois recarrega.
 
     def reload(self) -> None:
         """
-        Recarrega todo o histórico a partir da planilha; pode ser chamado via comando.
+        Recarrega todo o histórico a partir da planilha; pode ser chamado via comando /reload_history.
         """
         with self._lock:
             self._canonical_map.clear()
             self._summary_map.clear()
             self._opponents_map.clear()
-        # Chama _load_existing fora do lock para evitar travamento interno
         self._load_existing()

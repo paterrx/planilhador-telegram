@@ -2,7 +2,7 @@
 
 import re
 import logging
-from typing import List, Optional
+from typing import Optional, List
 from config import PATTERN_STAKE, PATTERN_LIMIT, PATTERN_ODD, RUIDO_LINES, COMPETITIONS, SPORTS_KEYWORDS
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def extract_stake_list(text: str) -> List[float]:
     if not text:
         return []
     matches = PATTERN_STAKE.findall(text)
-    stakes: List[float] = []
+    stakes = []
     for m in matches:
         num = m.replace(',', '.')
         try:
@@ -62,7 +62,7 @@ def extract_odd_list(text: str) -> List[float]:
     if not text:
         return []
     matches = PATTERN_ODD.findall(text)
-    odds: List[float] = []
+    odds = []
     for m in matches:
         num = m.replace(',', '.')
         try:
@@ -114,7 +114,7 @@ def parse_market(mercado_raw: str) -> (Optional[str], Optional[str]):
         nums = re.findall(r'(\d+[.,]?\d*)', s)
         if nums:
             return "under", nums[0].replace(',', '.')
-    # Poder adicionar lógica de “ganha” ou “empate” etc.
+    # Outras regras podem ser adicionadas
     return None, None
 
 def detect_competition(text: str) -> Optional[str]:
@@ -138,12 +138,13 @@ def detect_sport(text: str) -> Optional[str]:
     tlower = text.lower()
     for kw in SPORTS_KEYWORDS:
         if kw.lower() in tlower:
+            # Retornar com primeira letra maiúscula
             return kw.title()
     return None
 
 def summarize_market(mercado_raw: str) -> str:
     """
-    Resumo de mercado: reaproveita heurística de mapping_utils ou heurística simples.
+    Resumo de mercado: reaproveita mapping_utils ou heurística simples.
     """
     from mapping_utils import summarize_market as sm
     return sm(mercado_raw or "")

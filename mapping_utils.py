@@ -1,7 +1,9 @@
+# mapping_utils.py
+
 import re
 import unicodedata
 import logging
-from typing import Optional  # Import necessário para as anotações que retornam Optional[str]
+from typing import Optional
 from config import BOOKMAKER_MAP
 
 logger = logging.getLogger(__name__)
@@ -29,14 +31,14 @@ def get_canonical(raw_name: str) -> str:
     mapping = {
         "Man City": "Manchester City",
         "City": "Manchester City",
-        "Real Madrid": "Real Madrid",
+        "Atl Madrid": "Atlético Madrid",
         # Adicione conforme necessário...
     }
     if s in mapping:
         return mapping[s]
     # Opcional: normalizar acentuação
     s_norm = normalize_text(s)
-    # Pode aplicar title case ou outra normalização leve
+    # Você pode aplicar title case ou outra normalização leve
     return s_norm
 
 def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
@@ -47,8 +49,7 @@ def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
     if not text:
         return None
 
-    # Primeiro, extrai host de possíveis URLs
-    # Regex simples: captura parte após https?:// até / ou espaço
+    # Extrai host de possíveis URLs
     urls = re.findall(r'https?://([^/\s]+)', text)
     for host in urls:
         host_lower = host.lower().replace('www.', '')
@@ -77,13 +78,11 @@ def summarize_market(mercado_raw: str) -> str:
         return ""
     s = mercado_raw.replace('\n', ' ').strip()
     s = ' '.join(s.split())
-    # Divide por delimitadores comuns
     parts = re.split(r'[;.,\-–]', s)
     for part in parts:
         part = part.strip()
         if part:
             tokens = part.split()
-            # Retorna até os primeiros 8 tokens
             return ' '.join(tokens[:8])
     # fallback: primeiras tokens
     tokens = s.split()

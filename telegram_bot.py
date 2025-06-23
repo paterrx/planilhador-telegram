@@ -4,10 +4,10 @@ import os
 import asyncio
 import logging
 import base64
-import re  # <--- necessário para usar re.search em handler
+import re  # IMPORT ESSENCIAL para regex
 from datetime import timezone
 
-# reduzir logs verbosos do telethon
+# Reduzir logs muito verbosos do telethon
 logging.getLogger("telethon").setLevel(logging.WARNING)
 logging.getLogger("telethon.network").setLevel(logging.WARNING)
 
@@ -56,7 +56,6 @@ def ensure_service_account_file():
             logger.error("Falha ao escrever arquivo de credenciais Service Account", exc_info=e)
             raise
     else:
-        # Se não há Base64, espera que o arquivo já exista localmente
         if not os.path.exists(sa_file):
             logger.error(f"Service account file '{sa_file}' não encontrado e SERVICE_ACCOUNT_JSON_B64 não definido.")
             raise FileNotFoundError(f"Service account file '{sa_file}' não existe e nenhuma credencial em SERVICE_ACCOUNT_JSON_B64.")
@@ -90,7 +89,7 @@ async def main():
     @client.on(events.NewMessage(pattern=r'/reload_history'))
     async def reload_history(ev):
         try:
-            historical._load_existing()
+            historical.reload()
             await ev.reply("✅ Histórico recarregado a partir da planilha.")
         except Exception as e:
             logger.error("Erro ao recarregar histórico", exc_info=e)
@@ -118,7 +117,7 @@ async def main():
             clean = clean_caption(raw)
             logger.debug(f"[Caption limpa] {clean}")
 
-            # RAW_MENSAGEM_IDENTIFICADA: mantemos texto + OCR bruto (se existir)
+            # RAW_MENSAGEM_IDENTIFICADA: guardamos legenda + OCR bruto
             if ocr_text:
                 raw_msg_identified = f"{clean} || OCR: {ocr_text}"
             else:
@@ -183,6 +182,19 @@ async def main():
                 except Exception as e:
                     home2 = away2 = None
                     logger.debug("Erro em extrai_times_de_linhas na legenda", exc_info=e)
+                # Fallback “Time ou Empate” usando histórico:
+                if not home2:
+                    low = clean.lower()
+                    if ' ou empate' in low:
+                        m = re.search(r'([\wÀ-ÿ\s]+?)\s+ou\s+empate', clean, flags=re.IGNORECASE)
+                        if m:
+                            cand = m.group(1).strip()
+                            # usar histórico para sugerir adversário
+                            opp = historical.suggest_opponent(cand)
+                            if opp:
+                                home2 = cand
+                                away2 = opp
+                                logger.debug(f"Fallback 'ou Empate': '{home2}' x '{away2}' via histórico")
                 if home2 and away2:
                     logger.debug(f"Times extraídos da legenda: {home2} x {away2}")
                     try:
@@ -266,6 +278,13 @@ async def main():
                 # Canonicalização com histórico
                 suggest_home = historical.suggest_canonical(raw_home)
                 suggest_away = historical.suggest_canonical(raw_away)
+                if not suggest_home:
+                    # tentar limpar ruído em raw_home? 
+                    cleaned = re.sub(r'\d.*$', '', raw_home).strip()
+                    suggest_home = historical.suggest_canonical(cleaned) or cleaned
+                if not suggest_away:
+                    cleaned_away = re.sub(r'\d.*$', '', raw_away).strip()
+                    suggest_away = historical.suggest_canonical(cleaned_away) or cleaned_away
                 canon_home = suggest_home if suggest_home else get_canonical(raw_home)
                 canon_away = suggest_away if suggest_away else get_canonical(raw_away)
                 logger.debug(f"Canonical: '{raw_home}' -> '{canon_home}', '{raw_away}' -> '{canon_away}'")
@@ -277,27 +296,6 @@ async def main():
                 summary_hist = historical.suggest_summary(mercado_raw or "")
                 market_summary = summary_hist if summary_hist else (summary_parse or "")
                 logger.debug(f"market_summary escolhido: {market_summary}")
-
-                # Exemplo de detecção de “ou Empate” em mercados tipo “Palmeiras ou Empate”
-                # Se desejar tratar especificamente: 
-                # Se a clean caption contiver “X ou Empate”, você pode extrair X como raw_home e raw_away vazio ou “Empate”.
-                # Exemplo simplificado:
-                # Note: ajustado para evitar NameError porque importamos re no topo.
-                pat = re.search(r'([A-Za-zÀ-ÿ0-9\s]+?)\s+ou\s+Empate', clean, flags=re.IGNORECASE)
-                if pat:
-                    guess = pat.group(1).strip()
-                    # Neste caso, raw_home = guess, raw_away = "" ou "Empate"? Depende de como deseja armazenar.
-                    # Aqui simplesmente: se extraído, forçamos raw_home=guess e raw_away="Empate"
-                    raw_home = guess
-                    raw_away = "Empate"
-                    logger.debug(f"Mercado do tipo 'X ou Empate' detectado: home='{raw_home}', away='{raw_away}'")
-                    # Se quiser, recalcule canonical via histórico/get_canonical:
-                    suggest_home = historical.suggest_canonical(raw_home)
-                    canon_home = suggest_home if suggest_home else get_canonical(raw_home)
-                    canon_away = "Empate"
-                    bet_type = "draw_or_win"
-                    selection = guess  # ou outra lógica, conforme seu parse
-                    # market_summary já está definido acima
 
                 # Nome do grupo
                 try:
@@ -340,7 +338,7 @@ async def main():
                 except Exception as e:
                     logger.error("Erro ao append_row", exc_info=e)
 
-                # Atualiza histórico
+                # Atualiza histórico de resumos
                 historical.update(raw_home, raw_away, mercado_raw or "", market_summary or "")
 
         except Exception:

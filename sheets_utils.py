@@ -7,15 +7,19 @@ from config import SERVICE_ACCOUNT_FILE, SPREADSHEET_ID, NEW_TAB
 
 logger = logging.getLogger(__name__)
 
+# sheets_utils.py
+
 HEADER = [
     "bet_key", "duplicate", "data_hora", "group_id", "group_name",
-    "RAW_MENSAGEM_IDENTIFICADA",
+    "raw_mensagem_identificada",
     "raw_time_casa", "raw_time_fora",
     "time_casa", "time_fora",
     "mercado_raw", "market_summary", "odd", "stake_pct",
     "actual_units", "scale", "unit_value", "amount_real", "placed",
     "selection", "bet_type", "competition", "bookmaker", "sport"
 ]
+
+
 
 def init_sheet():
     # Carrega credenciais
