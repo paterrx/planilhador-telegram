@@ -1,0 +1,17 @@
+{
+  "name": "Planilhador Telegram",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+  // Após criar o container, instala dependências Python e, se existir variável SERVICE_ACCOUNT_JSON, gera o arquivo
+  "postCreateCommand": "pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON\" ]; then echo \"$SERVICE_ACCOUNT_JSON\" > service_account.json; fi",
+  "remoteUser": "vscode"
+}
