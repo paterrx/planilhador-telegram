@@ -1,8 +1,10 @@
+# mapping_utils.py
+
 import re
 import unicodedata
 import logging
-from config import BOOKMAKER_MAP
 from typing import Optional
+from config import BOOKMAKER_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ def normalize_bookmaker_from_url_or_text(text: str) -> Optional[str]:
     Detecta bookmaker a partir de URL ou texto livre, usando BOOKMAKER_MAP.
     Retorna valor mapeado (ex.: "Bet365") ou None.
     """
+    if not text:
+        return None
     # Primeiro, extrai host de possíveis URLs
     urls = re.findall(r'https?://([^/\s]+)', text)
     for host in urls:

@@ -19,14 +19,9 @@ def limpa_linhas_ocr(ocr_text: str):
             continue
         ignora = False
         for p in RUIDO_LINES:
-            # Usa re.match com IGNORECASE
-            try:
-                if re.match(p, l, flags=re.IGNORECASE):
-                    ignora = True
-                    break
-            except re.error:
-                # Padrão inválido, ignora essa regra
-                continue
+            if re.match(p, l, flags=re.IGNORECASE):
+                ignora = True
+                break
         if ignora:
             continue
         filtered.append(l)
@@ -48,9 +43,9 @@ def extrai_times_de_linhas(lines):
     sport = detect_sport(texto_junto)  # ex.: 'Tênis', 'Futebol', etc.
     sport_l = sport.lower() if sport else None
 
-    # Heurística específica para tênis
+    # Se for tênis, usar heurísticas específicas
     if sport_l and ("tênis" in sport_l or "tenis" in sport_l):
-        # Tentar cada linha: 'A vs B', 'A x B', 'A - B'
+        # Primeiro, procurar em cada linha padrão 'A vs B', 'A x B', 'A - B'
         for l in lines:
             m = re.search(
                 r'([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50}?)\s*(?:vs\.?|x|×|-\s*)\s*([A-Za-zÀ-ÿ][\wÀ-ÿ\.\s]{1,50})',
@@ -59,18 +54,17 @@ def extrai_times_de_linhas(lines):
             if m:
                 left = m.group(1).strip()
                 right = m.group(2).strip()
-                # Filtra nomes curtos ou ruído: exigir pelo menos nome + sobrenome
-                def parece_nome(s):
+                def parece_nome(s: str) -> bool:
                     parts = s.split()
                     return len(parts) >= 2 and all(re.match(r'^[A-ZÀ-Ÿ]', p) for p in parts)
                 if parece_nome(left) and parece_nome(right):
                     logger.debug(f"extrai_times_de_linhas (Tênis linha única): '{left}' x '{right}'")
                     return left, right
-        # Se não achou em linha única, usar duas primeiras linhas se parecerem nomes
+        # Se não achou em linha única, tentar usar as duas primeiras linhas
         if len(lines) >= 2:
             l0 = lines[0].strip()
             l1 = lines[1].strip()
-            def parece_nome(s):
+            def parece_nome(s: str) -> bool:
                 parts = s.split()
                 return len(parts) >= 2 and all(re.match(r'^[A-ZÀ-Ÿ]', p) for p in parts)
             if parece_nome(l0) and parece_nome(l1):
@@ -78,24 +72,19 @@ def extrai_times_de_linhas(lines):
                 return l0, l1
         return None, None
 
-    # Heurística geral para outros esportes
+    # Heurística geral para outros esportes (futebol, basquete, etc.)
     for l in lines:
         low = l.lower()
-        # Pular linhas que pareçam de mercado ou ruído
         if re.search(r'\b(mais de|under|over|total|empate|ambas|handicap|defesas|pontos)\b', low):
             continue
-        # Regex para detectar mandante x visitante
         m = re.search(r'(.+?)\s*(?:x|vs\.?|v|×|-\s*)\s*(.+)', l, flags=re.IGNORECASE)
         if m:
             left = m.group(1).strip()
             right = m.group(2).strip()
-            # Limpeza: remover timestamps ou prefixos
             left2 = re.sub(r'^\d{1,2}[:h]\d{2}\s*', '', left).strip()
             right2 = re.sub(r'^\d{1,2}[:h]\d{2}\s*', '', right).strip()
-            # Remover ruídos comuns
             left2 = re.sub(r'^(OOS\s+|fe\)\s*)', '', left2, flags=re.IGNORECASE).strip()
             right2 = re.sub(r'^(OOS\s+|fe\)\s*)', '', right2, flags=re.IGNORECASE).strip()
-            # Verificar que ambos contêm letras
             if re.search(r'[A-Za-zÀ-ÿ]', left2) and re.search(r'[A-Za-zÀ-ÿ]', right2):
                 logger.debug(f"extrai_times_de_linhas (Geral): '{left2}' x '{right2}'")
                 return left2, right2
@@ -110,14 +99,14 @@ def extrai_todas_opcoes_mercado(lines, start_index=0):
     for i in range(start_index, len(lines)):
         l = lines[i].strip()
         odd_val = None
-        # Tentativa de extrair odd: padrão '2.35x' ou '2.35 x'
+        # Tenta extrair odd padrão '2.35x'
         m_odd = re.search(r'([\d]+[.,][\d]+)\s*x\b', l, flags=re.IGNORECASE)
         if m_odd:
             try:
                 odd_val = float(m_odd.group(1).replace(',', '.'))
             except:
                 odd_val = None
-        # Heurísticas para identificar linha de mercado
+        # heurística de reconhecimento de mercado:
         low = l.lower()
         achou = False
         if re.search(r'\b(Mais de|Under|Over)\s*[\d]+[.,]?[\d]*', l, flags=re.IGNORECASE):
@@ -128,7 +117,6 @@ def extrai_todas_opcoes_mercado(lines, start_index=0):
             achou = True
         elif 'defesas do goleiro' in low and re.search(r'Mais de\s*[\d]+[.,]?[\d]*', l, flags=re.IGNORECASE):
             achou = True
-        # Adicione mais heurísticas específicas conforme formatos que surgirem
         if achou:
             resultados.append((l, odd_val))
     return resultados
@@ -137,6 +125,7 @@ async def perform_ocr_on_media(message, download_folder='downloads'):
     """
     Faz download da mídia e tenta OCR via pytesseract.
     Retorna string de texto ou "" se falhar.
+    Tenta em português; se falhar por falta de tessdata, tenta em 'eng'.
     """
     os.makedirs(download_folder, exist_ok=True)
     try:
@@ -156,12 +145,19 @@ async def perform_ocr_on_media(message, download_folder='downloads'):
     except Exception as e:
         logger.debug("Erro ao abrir imagem para OCR:", exc_info=e)
         return ""
+    # First try Portuguese
     try:
-        # Ajuste de idioma conforme necessidade; aqui 'por' se for português
         ocr_text = pytesseract.image_to_string(img, lang='por')
-        return ocr_text or ""
+        if ocr_text:
+            return ocr_text
     except pytesseract.pytesseract.TesseractError as e:
-        logger.debug("OCR TesseractError:", exc_info=e)
+        logger.debug("OCR TesseractError (pt):", exc_info=e)
     except Exception as e:
-        logger.debug("OCR falhou genérico:", exc_info=e)
+        logger.debug("OCR falhou genérico (pt):", exc_info=e)
+    # Fallback to English
+    try:
+        ocr_text = pytesseract.image_to_string(img, lang='eng')
+        return ocr_text or ""
+    except Exception as e:
+        logger.debug("OCR falhou genérico (eng):", exc_info=e)
     return ""

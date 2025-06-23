@@ -12,6 +12,10 @@
       ]
     }
   },
-  "postCreateCommand": "if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
-  "remoteUser": "vscode"
+  "postCreateCommand": "python3 -m pip install --upgrade pip && pip install -r requirements.txt && if [ -n \"$SERVICE_ACCOUNT_JSON_B64\" ]; then echo \"$SERVICE_ACCOUNT_JSON_B64\" | base64 -d > service_account.json; fi",
+  "remoteUser": "vscode",
+  "containerEnv": {
+    // Ajuste conforme onde o tessdata foi instalado no container:
+    "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/4.00/"
+  }
 }

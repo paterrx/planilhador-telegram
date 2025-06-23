@@ -1,125 +1,160 @@
 # analysis_utils.py
 
 import logging
-from typing import Optional, Dict, Tuple, List, Any
 import threading
+from typing import Optional, Dict, List
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 
 class HistoricalAnalyzer:
     """
-    Mantém um histórico das entradas gravadas na planilha para sugerir
-    canonicalizações e resumos baseados em exemplos anteriores.
+    Mantém mapeamentos de nomes canônicos e resumos de mercado a partir das entradas já existentes na planilha,
+    e também mapeamento de adversários para sugerir oponente em casos como “Time ou Empate”.
     """
 
     def __init__(self, sheet):
+        """
+        sheet: objeto gspread Worksheet já inicializado, com cabeçalho conforme HEADER em sheets_utils.
+        """
         self.sheet = sheet
-        # Estrutura interna para mapear raw_name -> canonical sugerido
-        self._canonical_map: Dict[str, str] = {}
-        # Para resumos de mercado: raw_market -> summary
-        self._summary_map: Dict[str, str] = {}
-        # Carrega existentes na planilha
-        self._load_existing()
-        # Se desejar thread-safe:
+        self._canonical_map: Dict[str, str] = {}     # raw_name -> canonical
+        self._summary_map: Dict[str, str] = {}       # raw_market -> summary
+        self._opponents_map: Dict[str, Counter] = {} # canonical_team -> Counter(opponent_name)
         self._lock = threading.Lock()
+        self._load_existing()
 
     def _load_existing(self) -> None:
         """
-        Lê todas as linhas existentes na aba e popula os mapas.
-        Presume que a planilha já tenha cabeçalho conforme HEADER em sheets_utils.
+        Carrega todas as linhas existentes da aba na memória para extrair mapeamentos:
+        - raw_time_casa -> time_casa (canônico)
+        - raw_time_fora -> time_fora (canônico)
+        - mercado_raw -> market_summary
+        - time_casa <-> time_fora em _opponents_map
         """
         try:
-            # pega todas as linhas: cada row é lista de strings
-            all_values = self.sheet.get_all_values()
-            # A primeira linha é o cabeçalho
-            header = all_values[0] if all_values else []
-            # Encontre índices de colunas que interessam:
-            # raw_home está em coluna 'raw_time_casa' e raw_away em 'raw_time_fora',
-            # market_summary em 'market_summary'.
-            # Ajuste conforme HEADER real; supondo HEADER conforme sheets_utils:
-            # ["bet_key", "duplicate", "data_hora", "group_id", "group_name",
-            #  "raw_time_casa", "raw_time_fora", "time_casa", "time_fora",
-            #  "mercado_raw", "market_summary", ...]
+            all_values: List[List[str]] = self.sheet.get_all_values()
+            if not all_values:
+                return
+            header = all_values[0]
+            # Espera colunas conforme sheets_utils.HEADER
+            # Encontrar índices pelas strings exatas:
             try:
                 idx_raw_home = header.index("raw_time_casa")
                 idx_raw_away = header.index("raw_time_fora")
+                idx_canon_home = header.index("time_casa")
+                idx_canon_away = header.index("time_fora")
+                idx_raw_market = header.index("mercado_raw")
                 idx_summary = header.index("market_summary")
             except ValueError:
-                logger.warning("HistoricalAnalyzer: não encontrou colunas esperadas no cabeçalho")
+                logger.warning(
+                    "HistoricalAnalyzer: cabeçalho inesperado ou colunas ausentes. Não carregará histórico."
+                )
                 return
 
-            # Itera das linhas já preenchidas (pular cabeçalho)
             for row in all_values[1:]:
-                if len(row) <= max(idx_raw_home, idx_raw_away, idx_summary):
+                # Proteção: verificar comprimento suficiente
+                if len(row) <= max(idx_raw_home, idx_raw_away, idx_canon_home, idx_canon_away, idx_raw_market, idx_summary):
                     continue
                 raw_home = row[idx_raw_home].strip()
                 raw_away = row[idx_raw_away].strip()
+                canon_home = row[idx_canon_home].strip()
+                canon_away = row[idx_canon_away].strip()
+                raw_market = row[idx_raw_market].strip()
                 summary = row[idx_summary].strip()
-                # Se canonical já estiver preenchido (colunas time_casa/time_fora), podemos mapear:
-                # ex.: coluna time_casa em índice header.index("time_casa")
-                try:
-                    idx_canon_home = header.index("time_casa")
-                    idx_canon_away = header.index("time_fora")
-                    canon_home = row[idx_canon_home].strip() if len(row) > idx_canon_home else ""
-                    canon_away = row[idx_canon_away].strip() if len(row) > idx_canon_away else ""
-                except ValueError:
-                    canon_home = ""
-                    canon_away = ""
-                # Só armazena se both raw e canon estiverem não vazios e diferentes
+
+                # canonical mapping
                 if raw_home and canon_home:
                     with self._lock:
-                        self._canonical_map[raw_home] = canon_home
+                        if raw_home not in self._canonical_map:
+                            self._canonical_map[raw_home] = canon_home
                 if raw_away and canon_away:
                     with self._lock:
-                        self._canonical_map[raw_away] = canon_away
-                # Para summary
-                if summary:
+                        if raw_away not in self._canonical_map:
+                            self._canonical_map[raw_away] = canon_away
+
+                # summary mapping
+                if raw_market and summary:
                     with self._lock:
-                        # Use raw mercado como chave? ou summary já manual?
-                        # Aqui só guardamos se não existir
-                        if summary not in self._summary_map.values():
-                            # Mapear raw string -> summary: mas não temos raw mercado aqui.
-                            # Se quiser, pode usar coluna 'mercado_raw' para índice:
-                            try:
-                                idx_raw_market = header.index("mercado_raw")
-                                raw_market = row[idx_raw_market].strip() if len(row) > idx_raw_market else ""
-                            except ValueError:
-                                raw_market = ""
-                            if raw_market:
-                                self._summary_map[raw_market] = summary
+                        if raw_market not in self._summary_map:
+                            self._summary_map[raw_market] = summary
+
+                # opponents mapping (baseado em canonical)
+                if canon_home and canon_away:
+                    with self._lock:
+                        if canon_home not in self._opponents_map:
+                            self._opponents_map[canon_home] = Counter()
+                        if canon_away not in self._opponents_map:
+                            self._opponents_map[canon_away] = Counter()
+                        self._opponents_map[canon_home][canon_away] += 1
+                        self._opponents_map[canon_away][canon_home] += 1
+
+            logger.info(
+                f"HistoricalAnalyzer: carregado {len(self._canonical_map)} mapeamentos canônicos, "
+                f"{len(self._summary_map)} resumos e {len(self._opponents_map)} times em histórico."
+            )
         except Exception as e:
-            logger.error("HistoricalAnalyzer: falha em _load_existing", exc_info=e)
+            logger.error("HistoricalAnalyzer: falha ao carregar histórico existente", exc_info=e)
 
     def suggest_canonical(self, raw_name: str) -> Optional[str]:
         """
-        Se já tivermos visto raw_name parecido antes, sugere canonical previamente usado.
-        Retorna None se não houver sugestão.
+        Sugere nome canônico para raw_name se já conhecido no histórico; caso contrário, None.
         """
+        if not raw_name:
+            return None
         with self._lock:
-            # Checagem exata; pode aprimorar com fuzzy matching
             return self._canonical_map.get(raw_name)
 
     def suggest_summary(self, mercado_raw: str) -> Optional[str]:
         """
-        Se já tivermos um resumo para este mercado_raw, retorna-o, ou None.
+        Sugere resumo de mercado para mercado_raw se já conhecido no histórico; caso contrário, None.
         """
+        if not mercado_raw:
+            return None
         with self._lock:
             return self._summary_map.get(mercado_raw)
 
+    def suggest_opponent(self, raw_name: str) -> Optional[str]:
+        """
+        Dada uma raw_name (ex.: 'Palmeiras'), tenta obter canonical ou normalizar, e buscar
+        em histórico adversário frequente:
+        - Se houver apenas um adversário no histórico ou um claro mais frequente, retorna-o.
+        - Caso contrário, None.
+        """
+        if not raw_name:
+            return None
+        # tenta canonical via raw_name
+        with self._lock:
+            canonical = self._canonical_map.get(raw_name, raw_name)
+            # buscar em opponents_map
+            counter = self._opponents_map.get(canonical)
+            if counter:
+                # se apenas 1 opção, retorna
+                most_common = counter.most_common(1)
+                if most_common:
+                    opponent, count = most_common[0]
+                    # opcional: exigir count >= 1; aqui consideramos aceitável
+                    return opponent
+        return None
+
     def update(self, raw_home: str, raw_away: str, mercado_raw: str, summary: str) -> None:
         """
-        Atualiza histórico com nova entrada após gravar na planilha.
+        Atualiza o histórico em memória com nova entrada após planilhar:
+        Atualmente só adiciona mapeamentos de mercado_summary; para nomes, espera recarregar manualmente (/reload_history)
         """
-        with self._lock:
-            # Se ainda não existe, adiciona
-            if raw_home and summary:
-                # opcional: checar duplicatas
-                if raw_home not in self._canonical_map:
-                    # mas qual canonical usar? o código que chama deve usar get_canonical ou outra
-                    # Aqui não definimos novo mapping automático; este método registra apenas summary e raw pair.
-                    pass
-            # Para summary:
-            if mercado_raw and summary:
+        if mercado_raw and summary:
+            with self._lock:
                 if mercado_raw not in self._summary_map:
                     self._summary_map[mercado_raw] = summary
-        # Não reescreve planilha, pois o usuário edita manualmente; apenas mantemos em memória
+        # Não atualizamos canonical_map e opponents_map automaticamente aqui, pois
+        # normalmente o usuário edita manualmente na planilha e depois recarrega via /reload_history.
+
+    def reload(self) -> None:
+        """
+        Recarrega todo o histórico a partir da planilha; pode ser chamado via comando.
+        """
+        with self._lock:
+            self._canonical_map.clear()
+            self._summary_map.clear()
+            self._opponents_map.clear()
+        self._load_existing()

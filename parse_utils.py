@@ -2,8 +2,8 @@
 
 import re
 import logging
+from typing import Optional, Tuple, List
 from config import PATTERN_STAKE, PATTERN_LIMIT, PATTERN_ODD, RUIDO_LINES, COMPETITIONS, SPORTS_KEYWORDS
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +19,9 @@ def clean_caption(raw: str) -> str:
     for l in linhas:
         ignora = False
         for pat in RUIDO_LINES:
-            try:
-                if re.search(pat, l):
-                    ignora = True
-                    break
-            except re.error:
-                continue
+            if re.search(pat, l):
+                ignora = True
+                break
         if not ignora:
             novas.append(l)
     s2 = "\n".join(novas)
@@ -103,6 +100,9 @@ def parse_market(mercado_raw: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse simplificado de mercado_raw.
     Retorna (bet_type, selection).
+    Exemplos:
+      - "Over 2.5 gols" → ("over", "2.5")
+      - "Under 1.5" → ("under", "1.5")
     """
     if not mercado_raw:
         return None, None
@@ -117,7 +117,7 @@ def parse_market(mercado_raw: str) -> Tuple[Optional[str], Optional[str]]:
         nums = re.findall(r'(\d+[.,]?\d*)', s)
         if nums:
             return "under", nums[0].replace(',', '.')
-    # Outras regras podem ser implementadas
+    # Outros casos podem ser adicionados aqui, ex.: "Time A ganha" etc.
     return None, None
 
 def detect_competition(text: str) -> Optional[str]:
@@ -141,6 +141,7 @@ def detect_sport(text: str) -> Optional[str]:
     tlower = text.lower()
     for kw in SPORTS_KEYWORDS:
         if kw.lower() in tlower:
+            # Retornar com primeira letra maiúscula
             return kw.title()
     return None
 

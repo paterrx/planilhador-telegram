@@ -31,7 +31,7 @@ except:
 
 # UNIT_SCALES: mapeia group_id (int) → escala (int)
 UNIT_SCALES = {
-    # Exemplo: ajuste conforme seus grupos
+    # Ajuste conforme seus grupos monitorados
     2625305937: 150,   # Arrudex
     2468014496: 100,   # Psicopatas
     2445658326: 100,   # TP Especiais
@@ -40,7 +40,6 @@ UNIT_SCALES = {
     2516014749: 100,   # Feel Tips
     2546110827: 150,   # LuCa Props
     2455542600: 100,   # Peixe Esperto
-    # Adicione ou ajuste conforme seus grupos monitorados
 }
 DEFAULT_SCALE = int(os.getenv("DEFAULT_SCALE", "100"))
 MONITORADOS = list(UNIT_SCALES.keys())
